@@ -1,5 +1,7 @@
 # Cost Analyzer
 
+**Live demo:** https://cost-analyzer-6lae.onrender.com (free tier: first load after idle takes ~1 minute; data resets when the server restarts)
+
 A small Flask web app for comparing **estimated vs actual project costs**, built for the Software Quality Engineering assignment (Basit Ul Ebad, FA23-BSE-026).
 
 ## Features
