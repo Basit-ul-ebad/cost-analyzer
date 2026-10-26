@@ -33,6 +33,7 @@ from flask_wtf.csrf import CSRFError, CSRFProtect
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
+import pert
 from ai import detect_anomalies, generate_summary
 from calculations import analyse_project
 from report import build_pdf, build_xlsx, safe_filename
@@ -125,7 +126,20 @@ COLUMN_ALIASES = {
     "category": {"category", "type", "group"},
     "estimated": {"estimated", "estimated cost", "estimate", "budget", "planned"},
     "actual": {"actual", "actual cost", "spent", "actual spend"},
+    # Optional PERT columns (three-point estimates and dependencies)
+    "code": {"id", "wbs", "wbs id", "activity id", "task id", "code", "ref"},
+    "cost_o": {"optimistic cost", "cost optimistic", "o cost", "cost o", "best case cost", "min cost"},
+    "cost_m": {"most likely cost", "likely cost", "m cost", "cost m", "cost most likely"},
+    "cost_p": {"pessimistic cost", "cost pessimistic", "p cost", "cost p", "worst case cost", "max cost"},
+    "dur_o": {"optimistic days", "optimistic duration", "optimistic time", "o days", "days o", "duration o", "to"},
+    "dur_m": {"most likely days", "likely days", "most likely duration", "most likely time", "m days", "days m",
+              "duration m", "tm"},
+    "dur_p": {"pessimistic days", "pessimistic duration", "pessimistic time", "p days", "days p", "duration p", "tp"},
+    "predecessors": {"predecessors", "predecessor", "depends on", "dependencies", "dependency"},
 }
+PERT_FIELDS = ("code", "cost_o", "cost_m", "cost_p", "dur_o", "dur_m", "dur_p", "predecessors")
+ITEM_COLUMNS = ("item", "category", "estimated", "actual") + PERT_FIELDS
+CODE_RE = re.compile(r"^[A-Za-z0-9._-]{1,20}$")
 
 
 # ---------- database ----------
@@ -183,6 +197,13 @@ def init_db():
     cols = {r["name"] for r in db.execute("PRAGMA table_info(projects)")}
     if "owner_id" not in cols:
         db.execute("ALTER TABLE projects ADD COLUMN owner_id INTEGER REFERENCES users(id)")
+    if "target_days" not in cols:
+        db.execute("ALTER TABLE projects ADD COLUMN target_days REAL")
+    item_cols = {r["name"] for r in db.execute("PRAGMA table_info(cost_items)")}
+    for col in PERT_FIELDS:
+        if col not in item_cols:
+            kind = "TEXT" if col in ("code", "predecessors") else "REAL"
+            db.execute(f"ALTER TABLE cost_items ADD COLUMN {col} {kind}")  # names from a fixed tuple
     db.execute("CREATE INDEX IF NOT EXISTS idx_projects_owner ON projects(owner_id)")
     db.commit()
 
@@ -279,6 +300,62 @@ def check_file_signature(ext, data):
             raise ValueError("The file is not a plain-text CSV file")
 
 
+def is_blank(value):
+    return value is None or (isinstance(value, float) and value != value) or str(value).strip().lower() in ("", "nan")
+
+
+def parse_days(raw, field):
+    try:
+        value = float(str(raw).replace(",", "").strip())
+    except (TypeError, ValueError):
+        raise ValueError(f"{field} must be a number of days")
+    if value != value or value < 0 or value > 3650:
+        raise ValueError(f"{field} must be between 0 and 3,650 days")
+    return round(value, 2)
+
+
+def parse_pert(rec):
+    """Optional PERT fields. Each three-point estimate must be complete and ordered O <= M <= P."""
+    out = {k: None for k in PERT_FIELDS}
+    code = rec.get("code")
+    if not is_blank(code):
+        code = str(code).strip()
+        if not CODE_RE.match(code):
+            raise ValueError("ID may only use letters, numbers, dot, dash or underscore (max 20)")
+        out["code"] = code
+    for prefix, label, parser in (("cost", "cost", parse_amount), ("dur", "days", parse_days)):
+        raw = [rec.get(f"{prefix}_{x}") for x in "omp"]
+        given = [not is_blank(v) for v in raw]
+        if not any(given):
+            continue
+        if not all(given):
+            raise ValueError(f"PERT {label} needs all three values: optimistic, most likely and pessimistic")
+        o, m, p = (parser(v, f"{n} {label}") for v, n in zip(raw, ("Optimistic", "Most likely", "Pessimistic")))
+        if not o <= m <= p:
+            raise ValueError(f"PERT {label} must satisfy optimistic <= most likely <= pessimistic")
+        if prefix == "dur" and p <= 0:
+            raise ValueError("PERT days must be greater than 0")
+        out[f"{prefix}_o"], out[f"{prefix}_m"], out[f"{prefix}_p"] = o, m, p
+    preds = rec.get("predecessors")
+    if not is_blank(preds):
+        from pert import split_predecessors
+        parts = split_predecessors(str(preds))
+        if len(parts) > 20 or not all(CODE_RE.match(x) for x in parts):
+            raise ValueError("Predecessors must be a list of activity IDs, e.g. 1.1, 1.2")
+        if out["dur_o"] is None:
+            raise ValueError("Predecessors need PERT days on the same row")
+        out["predecessors"] = ", ".join(parts)
+    return out
+
+
+def insert_items(db, project_id, rows):
+    db.executemany(
+        f"INSERT INTO cost_items (project_id, {', '.join(ITEM_COLUMNS)}) "
+        f"VALUES (?, {', '.join('?' for _ in ITEM_COLUMNS)})",
+        [(project_id, *(r.get(c) for c in ITEM_COLUMNS)) for r in rows],
+    )
+
+
 def detect_delimiter(text):
     """Comma, semicolon (European Excel), tab or pipe separated files are all accepted."""
     try:
@@ -314,7 +391,7 @@ def read_upload(file_storage):
     # Map whatever headers the user used onto our four columns.
     rename = {}
     for col in df.columns:
-        key = str(col).strip().lower().replace("_", " ")
+        key = " ".join(re.sub(r"[^a-z0-9]+", " ", str(col).lower()).split())
         for target, aliases in COLUMN_ALIASES.items():
             if key in aliases:
                 rename[col] = target
@@ -340,6 +417,7 @@ def read_upload(file_storage):
                 "category": clean_text(rec.get("category"), "Category", 50, "General"),
                 "estimated": parse_amount(rec.get("estimated"), "Estimated cost"),
                 "actual": parse_amount(rec.get("actual"), "Actual cost"),
+                **parse_pert(rec),
             })
         except ValueError as e:
             errors.append(f"Row {i}: {e}")
@@ -466,8 +544,9 @@ def project_detail(project_id):
         "SELECT * FROM ai_summaries WHERE project_id = ?", (project_id,)
     ).fetchone()
     summary_stale = summary is not None and summary["data_hash"] != data_hash(analysis)
-    return render_template("project.html", project=project, a=analysis,
-                           chart_data=build_chart_data(analysis),
+    pert_result = pert.analyse(analysis["lines"], project["target_days"])
+    return render_template("project.html", project=project, a=analysis, pert=pert_result,
+                           chart_data=build_chart_data(analysis, pert_result),
                            anomalies=anomalies, summary=summary, summary_stale=summary_stale)
 
 
@@ -480,7 +559,7 @@ def load_analysis(project_id):
 
 def data_hash(analysis):
     """Fingerprint of the cost data, used to tell when a saved AI summary is out of date."""
-    key = [(l["item"], l["category"], l["estimated"], l["actual"]) for l in analysis["lines"]]
+    key = [[l.get(c) for c in ITEM_COLUMNS] for l in analysis["lines"]]
     return hashlib.sha256(json.dumps(key).encode()).hexdigest()
 
 
@@ -488,14 +567,14 @@ def report_inputs(project_id):
     project = get_project_or_404(project_id)
     analysis = load_analysis(project_id)
     if not analysis["lines"]:
-        return project, None, None, None
+        return project, None, None, None, None
     anomalies = detect_anomalies(analysis["lines"])
     row = get_db().execute("SELECT * FROM ai_summaries WHERE project_id = ?", (project_id,)).fetchone()
     summary = None
     if row:
         summary = dict(row)
         summary["stale"] = row["data_hash"] != data_hash(analysis)
-    return project, analysis, anomalies, summary
+    return project, analysis, anomalies, summary, pert.analyse(analysis["lines"], project["target_days"])
 
 
 def _download(data, mimetype, filename):
@@ -508,11 +587,11 @@ def _download(data, mimetype, filename):
 @login_required
 @limiter.limit("10 per minute")
 def report_pdf(project_id):
-    project, analysis, anomalies, summary = report_inputs(project_id)
+    project, analysis, anomalies, summary, pert_result = report_inputs(project_id)
     if analysis is None:
         flash("Add some cost items before downloading a report", "error")
         return redirect(url_for("project_detail", project_id=project_id))
-    pdf = build_pdf(project["name"], analysis, anomalies, summary)
+    pdf = build_pdf(project["name"], analysis, anomalies, summary, pert_result)
     return _download(pdf, "application/pdf", safe_filename(project["name"], "pdf"))
 
 
@@ -520,11 +599,11 @@ def report_pdf(project_id):
 @login_required
 @limiter.limit("10 per minute")
 def report_xlsx(project_id):
-    project, analysis, anomalies, summary = report_inputs(project_id)
+    project, analysis, anomalies, summary, pert_result = report_inputs(project_id)
     if analysis is None:
         flash("Add some cost items before exporting", "error")
         return redirect(url_for("project_detail", project_id=project_id))
-    data = build_xlsx(project["name"], analysis, anomalies, summary)
+    data = build_xlsx(project["name"], analysis, anomalies, summary, pert_result)
     return _download(data, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                      safe_filename(project["name"], "xlsx"))
 
@@ -554,9 +633,22 @@ def ai_summary(project_id):
     return redirect(url_for("project_detail", project_id=project_id) + "#ai")
 
 
-def build_chart_data(analysis):
+def build_chart_data(analysis, pert_result=None):
     """Only the fields the charts need (keeps database ids out of the page)."""
+    pert_result = pert_result or {}
+    cost, sched = pert_result.get("cost"), pert_result.get("schedule")
+    if sched and "error" in sched:
+        sched = None
+    pert_data = {
+        "cost": {k: cost[k] for k in ("expected", "sd", "budget", "actual")} if cost and cost["sd"] > 0 else None,
+        "schedule": {
+            "duration": sched["duration"], "sd": sched["sd"], "target": sched["target_days"],
+            "activities": [{"code": a["code"], "item": a["item"], "es": a["es"], "ef": a["ef"],
+                            "slack": a["slack"], "critical": a["critical"]} for a in sched["activities"]],
+        } if sched else None,
+    }
     return {
+        "pert": pert_data,
         "categories": [
             {"category": c["category"], "estimated": c["estimated"], "actual": c["actual"]}
             for c in sorted(analysis["categories"], key=lambda c: c["actual"], reverse=True)
@@ -576,13 +668,13 @@ def add_item(project_id):
     get_project_or_404(project_id)
     f = request.form
     try:
-        row = (
-            project_id,
-            clean_text(f.get("item"), "Item"),
-            clean_text(f.get("category"), "Category", 50, "General"),
-            parse_amount(f.get("estimated"), "Estimated cost"),
-            parse_amount(f.get("actual"), "Actual cost"),
-        )
+        row = {
+            "item": clean_text(f.get("item"), "Item"),
+            "category": clean_text(f.get("category"), "Category", 50, "General"),
+            "estimated": parse_amount(f.get("estimated"), "Estimated cost"),
+            "actual": parse_amount(f.get("actual"), "Actual cost"),
+            **parse_pert({k: f.get(k) for k in PERT_FIELDS}),
+        }
     except ValueError as e:
         flash(str(e), "error")
         return redirect(url_for("project_detail", project_id=project_id))
@@ -591,10 +683,7 @@ def add_item(project_id):
         flash(f"A project can hold at most {MAX_ROWS} items", "error")
         return redirect(url_for("project_detail", project_id=project_id))
     db = get_db()
-    db.execute(
-        "INSERT INTO cost_items (project_id, item, category, estimated, actual) VALUES (?,?,?,?,?)",
-        row,
-    )
+    insert_items(db, project_id, [row])
     db.commit()
     flash("Item added", "success")
     return redirect(url_for("project_detail", project_id=project_id))
@@ -634,13 +723,35 @@ def upload(project_id):
         if count + len(rows) > MAX_ROWS:
             flash(f"Upload rejected: a project can hold at most {MAX_ROWS} items", "error")
             return redirect(url_for("project_detail", project_id=project_id))
-    db.executemany(
-        "INSERT INTO cost_items (project_id, item, category, estimated, actual) VALUES (?,?,?,?,?)",
-        [(project_id, r["item"], r["category"], r["estimated"], r["actual"]) for r in rows],
-    )
+    insert_items(db, project_id, rows)
     db.commit()
     flash(f"Imported {len(rows)} item(s)", "success")
     return redirect(url_for("project_detail", project_id=project_id))
+
+
+@app.post("/projects/<int:project_id>/target")
+@login_required
+def set_target(project_id):
+    get_project_or_404(project_id)
+    raw = (request.form.get("target_days") or "").strip()
+    try:
+        target = None if raw == "" else parse_days(raw, "Target duration")
+        if target is not None and target <= 0:
+            raise ValueError("Target duration must be greater than 0 days")
+    except ValueError as e:
+        flash(str(e), "error")
+        return redirect(url_for("project_detail", project_id=project_id) + "#pert")
+    db = get_db()
+    db.execute("UPDATE projects SET target_days = ? WHERE id = ? AND owner_id = ?",
+               (target, project_id, current_user_id()))
+    db.commit()
+    flash("Target duration saved" if target else "Target duration cleared", "success")
+    return redirect(url_for("project_detail", project_id=project_id) + "#pert")
+
+
+@app.route("/sample-pert.csv")
+def sample_pert():
+    return send_from_directory(BASE_DIR / "static", "sample_pert.csv", as_attachment=True)
 
 
 @app.route("/sample-template.csv")

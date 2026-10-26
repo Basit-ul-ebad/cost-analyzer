@@ -96,3 +96,15 @@ input[type=password] { padding: 9px 10px; border: 1px solid var(--border); borde
 .confirm-delete { display: flex; align-items: center; gap: 14px; }
 .check { flex-direction: row; align-items: center; gap: 6px; color: var(--text); }
 button.danger { background: var(--err); }
+.pert-grid { margin: 12px 0 16px; align-items: center; }
+.chart-box.short { height: 220px; }
+table.compact th, table.compact td { padding: 6px 8px; font-size: 13px; }
+.pert-h3 { margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--border); }
+.target-form { margin: 8px 0 4px; align-items: flex-end; flex-wrap: wrap; }
+.inline-label { flex: 1; min-width: 200px; }
+.pert-details { border: 1px dashed var(--border); border-radius: 8px; padding: 8px 12px; }
+.pert-details summary { cursor: pointer; font-size: 14px; color: var(--accent); }
+.pert-details[open] summary { margin-bottom: 10px; }
+.row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+@media (max-width: 560px) { .row3 { grid-template-columns: 1fr; } }
+td.num strong { font-weight: 600; }

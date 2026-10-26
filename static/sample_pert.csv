@@ -1,0 +1,15 @@
+ID,Item,Category,Estimated,Actual,Optimistic Cost,Most Likely Cost,Pessimistic Cost,Optimistic Days,Most Likely Days,Pessimistic Days,Predecessors
+A,Requirements gathering,Analysis,50000,58000,40000,50000,75000,4,6,10,
+B,System design,Design,80000,85000,60000,80000,130000,5,8,14,A
+C,UI/UX design,Design,60000,72000,45000,60000,90000,4,7,12,A
+D,Database setup,Development,30000,28000,20000,30000,50000,2,3,6,B
+E,Backend API,Development,200000,245000,150000,200000,320000,12,18,30,"B, D"
+F,Frontend screens,Development,160000,170000,120000,160000,250000,10,15,24,C
+G,Payment integration,Development,60000,95000,40000,60000,120000,3,5,12,E
+H,Frontend-API integration,Development,45000,50000,30000,45000,80000,3,5,9,"E, F"
+I,Test planning,Testing,20000,20000,15000,20000,30000,2,3,4,B
+J,System testing,Testing,70000,82000,50000,70000,110000,5,8,14,"G, H, I"
+K,User acceptance testing,Testing,30000,30000,20000,30000,50000,3,4,7,J
+L,User manual and training,Documentation,25000,22000,15000,25000,40000,2,4,6,H
+M,Deployment,Deployment,30000,34000,20000,30000,55000,1,2,4,"K, L"
+N,Hosting (3 months),Infrastructure,30000,30000,25000,30000,40000,,,,

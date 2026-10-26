@@ -43,7 +43,10 @@ def analyse_project(items):
     """items: iterable of rows/dicts with item, category, estimated, actual."""
     rows = []
     for it in items:
-        row = {k: it[k] for k in ("id", "item", "category", "estimated", "actual") if k in it.keys()}
+        keys = it.keys()
+        row = {k: it[k] for k in ("id", "item", "category", "estimated", "actual") if k in keys}
+        for k in ("code", "cost_o", "cost_m", "cost_p", "dur_o", "dur_m", "dur_p", "predecessors"):
+            row[k] = it[k] if k in keys else None
         row.update(analyse_item(row["estimated"], row["actual"]))
         rows.append(row)
 

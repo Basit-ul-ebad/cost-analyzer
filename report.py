@@ -23,7 +23,7 @@ GREY = "#93a4c3"
 RED = "#d14343"
 GREEN = "#2e9d57"
 MUTED = "#9aa3b2"
-STATUS_COLOR = {"Over budget": RED, "Under budget": GREEN, "On budget": MUTED}
+STATUS_COLOR = {"Over budget": RED, "Under budget": GREEN, "On budget": MUTED, "Critical": RED}
 
 
 def safe_filename(name, ext):
@@ -152,7 +152,7 @@ def _status_para(status, st):
     return Paragraph(f'<font color="{color}"><b>{escape(status)}</b></font>', st["cell"])
 
 
-def build_pdf(project_name, analysis, anomalies, summary):
+def build_pdf(project_name, analysis, anomalies, summary, pert=None):
     st = _styles()
     t = analysis["totals"]
     buf = io.BytesIO()
@@ -253,8 +253,84 @@ def build_pdf(project_name, analysis, anomalies, summary):
     story.append(_table(rows, [W * .22, W * .13, W * .14, W * .14, W * .14, W * .1, W * .13],
                         [2, 3, 4, 5], total_row=True))
 
+    story += _pert_story(pert or {}, st, W)
     doc.build(story, onFirstPage=on_page, onLaterPages=on_page)
     return buf.getvalue()
+
+
+def chart_gantt(sched):
+    acts = sched["activities"][:30]
+    fig, ax = plt.subplots(figsize=(7.2, max(2.2, 0.26 * len(acts) + 0.9)))
+    labels = [f"{a['code']}  {_trim(a['item'], 26)}" for a in acts]
+    ax.barh(labels, [a["ef"] - a["es"] for a in acts], left=[a["es"] for a in acts],
+            color=[RED if a["critical"] else GREY for a in acts], height=0.6)
+    ax.invert_yaxis()
+    ax.set_xlabel("Days from start", fontsize=8)
+    ax.tick_params(labelsize=7.5)
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.grid(axis="x", color="#e5e7eb", linewidth=0.8)
+    ax.set_axisbelow(True)
+    ax.set_title("PERT schedule (red = critical path)", fontsize=10, loc="left")
+    return _fig_to_png(fig)
+
+
+def _pert_story(pert, st, W):
+    cost, sched = pert.get("cost"), pert.get("schedule")
+    if not cost and not sched:
+        return []
+    out = [PageBreak(), _p("PERT analysis", st["h2"]),
+           _p("Three-point estimates: Expected E = (O + 4M + P) / 6, standard deviation = (P - O) / 6. "
+              "Probabilities assume a normal distribution of the total.", st["small"])]
+    if cost:
+        out.append(_p("Cost PERT", st["h2"]))
+        rows = [["Measure", "Value"],
+                ["Items with three-point costs", f"{cost['covered']} of {cost['total_items']}"],
+                ["Expected total cost (E)", _money(cost["expected"])],
+                ["Standard deviation", _money(cost["sd"])],
+                ["Budget (sum of estimates)", _money(cost["budget"])],
+                ["Probability of staying within budget", f"{cost['p_within_budget']}%"],
+                ["Actual cost so far", _money(cost["actual"])]]
+        rows += [[f"Cost at {c['level']}% confidence", _money(c["value"])] for c in cost["confidence"]]
+        out.append(_table(rows, [W * .55, W * .45], [1]))
+        out.append(Spacer(1, 6))
+        rows = [["ID", "Item", "O", "M", "P", "Expected", "SD", "Actual"]]
+        for i in cost["items"][:25]:
+            rows.append([i["code"], _p(i["item"], st["cell"]), _money(i["o"]), _money(i["m"]), _money(i["p"]),
+                         _money(i["expected"]), _money(i["sd"]), _money(i["actual"])])
+        out.append(_table(rows, [W * .07, W * .25, W * .11, W * .11, W * .11, W * .12, W * .1, W * .13],
+                          [2, 3, 4, 5, 6, 7]))
+        if len(cost["items"]) > 25:
+            out.append(_p("Showing the 25 items with the largest uncertainty.", st["small"]))
+    if sched:
+        out.append(_p("Schedule PERT", st["h2"]))
+        if sched.get("error"):
+            out.append(_p(sched["error"], st["body"]))
+            return out
+        rows = [["Measure", "Value"],
+                ["Expected project duration (T)", f"{sched['duration']:.1f} days"],
+                ["Standard deviation", f"{sched['sd']:.1f} days"],
+                ["Critical path", " -> ".join(sched["critical_path"])]]
+        if sched.get("target_days"):
+            rows.append([f"Probability of finishing within {sched['target_days']:g} days",
+                         f"{sched['p_target']}% (Z = {sched['z_target']})"])
+        rows += [[f"Duration at {c['level']}% confidence", f"{c['value']} days"] for c in sched["confidence"]]
+        out.append(_table([[_p(str(a), st["cell"]) if i == 1 else a for i, a in enumerate(r)] for r in rows],
+                          [W * .55, W * .45], []))
+        out.append(Spacer(1, 6))
+        n = min(len(sched["activities"]), 30)
+        out.append(Image(chart_gantt(sched), width=W, height=W * max(2.2, 0.26 * n + 0.9) / 7.2 * 1.08,
+                         kind="proportional"))
+        rows = [["ID", "Activity", "Pred.", "te", "SD", "ES", "EF", "LS", "LF", "Slack", ""]]
+        for a in sched["activities"]:
+            rows.append([a["code"], _p(a["item"], st["cell"]), _p(", ".join(a["preds"]) or "-", st["cell"]),
+                         f"{a['te']:.2f}", f"{a['sd']:.2f}", f"{a['es']:.1f}", f"{a['ef']:.1f}",
+                         f"{a['ls']:.1f}", f"{a['lf']:.1f}", f"{a['slack']:.1f}",
+                         _status_para("Critical", st) if a["critical"] else ""])
+        out.append(_table(rows, [W * .06, W * .25, W * .1, W * .07, W * .07, W * .07, W * .07, W * .07,
+                                 W * .07, W * .07, W * .1], [3, 4, 5, 6, 7, 8, 9]))
+        for w in sched.get("warnings", [])[:10]:
+            out.append(_p("Note: " + w, st["small"]))
+    return out
 
 
 # ------------------------------------------------------------------ Excel
@@ -265,7 +341,7 @@ def _xl_safe(value):
     return value
 
 
-def build_xlsx(project_name, analysis, anomalies, summary):
+def build_xlsx(project_name, analysis, anomalies, summary, pert=None):
     wb = Workbook()
     head_font = Font(bold=True, color="FFFFFF")
     head_fill = PatternFill("solid", fgColor="2457D6")
@@ -324,6 +400,30 @@ def build_xlsx(project_name, analysis, anomalies, summary):
           [[a["item"], a["category"], a["variance"], a["pct_variance"], a["severity"], "; ".join(a["reasons"])]
            for a in anomalies],
           [32, 18, 15, 12, 10, 80], money_cols=(3,))
+    cost, sched = (pert or {}).get("cost"), (pert or {}).get("schedule")
+    if cost:
+        ws = wb.create_sheet("PERT cost")
+        sheet(ws, ["ID", "Item", "Optimistic", "Most likely", "Pessimistic", "Expected", "Std dev", "Actual"],
+              [[i["code"], i["item"], i["o"], i["m"], i["p"], i["expected"], i["sd"], i["actual"]] for i in cost["items"]],
+              [8, 32, 14, 14, 14, 14, 12, 14], money_cols=(3, 4, 5, 6, 7, 8))
+        ws.append([])
+        for label, val in [("Expected total cost", cost["expected"]), ("Standard deviation", cost["sd"]),
+                           ("Budget", cost["budget"]), ("P(within budget) %", cost["p_within_budget"])] + \
+                          [(f"Cost at {c['level']}% confidence", c["value"]) for c in cost["confidence"]]:
+            ws.append([None, label, val])
+    if sched and not sched.get("error"):
+        ws = wb.create_sheet("PERT schedule")
+        sheet(ws, ["ID", "Activity", "Predecessors", "O", "M", "P", "te", "SD", "ES", "EF", "LS", "LF", "Slack", "Critical"],
+              [[a["code"], a["item"], ", ".join(a["preds"]), a["o"], a["m"], a["p"], a["te"], a["sd"], a["es"], a["ef"],
+                a["ls"], a["lf"], a["slack"], "Yes" if a["critical"] else ""] for a in sched["activities"]],
+              [8, 32, 14, 7, 7, 7, 8, 8, 8, 8, 8, 8, 8, 9])
+        ws.append([])
+        rows = [("Expected duration (days)", sched["duration"]), ("Standard deviation (days)", sched["sd"]),
+                ("Critical path", " -> ".join(sched["critical_path"]))]
+        if sched.get("target_days"):
+            rows += [("Target (days)", sched["target_days"]), ("P(finish by target) %", sched["p_target"])]
+        for label, val in rows:
+            ws.append([None, label, _xl_safe(val)])
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()

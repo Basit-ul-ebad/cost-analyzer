@@ -13,9 +13,10 @@ Live site: https://cost-analyzer-6lae.onrender.com (the first visit after a quie
 | 7 | **Charts** | Shows estimated vs actual per category, the variance of every item, and where the money went. | Look below the totals. Hover over a bar or slice to see the exact number. |
 | 8 | **Unusual expenses** | Points out lines that need checking: more than 25% over plan, money spent with no plan, or far out of line with the rest. | Scroll to **AI insights**. Each flagged item shows **High** or **Medium** and the reason. |
 | 9 | **AI cost summary** | Writes a short report: overall position, what caused the overrun, unusual items and suggestions. | Click **Generate AI summary**. If you change the data later, a blue note asks you to click **Regenerate**. Always check the AI's numbers against the tables. |
-| 10 | **PDF report** | A 3-page report with totals, the AI summary, flagged items, charts and all tables, ready to print or submit. | Click **Download PDF report** at the top of the project. |
-| 11 | **Excel export** | The same results as a spreadsheet (4 sheets) for further work in Excel. | Click **Export to Excel**. |
-| 12 | **Delete a project** | Removes the project and everything in it, permanently. | At the bottom of the project page, tick **I understand**, then click **Delete project**. |
+| 10 | **PERT analysis** | Uses three estimates per item (optimistic, most likely, pessimistic) to work out the **expected cost** and the chance of staying within budget, and, with days and predecessors, the **expected project duration**, the **critical path**, each activity's slack and the chance of finishing by a deadline. | Add the PERT columns to your file (click **PERT sample** next to the upload box for an example), or open **PERT details (optional)** when adding an item. Then scroll to **PERT analysis**. Type a target number of days and click **Calculate probability** to see the chance of meeting it. |
+| 11 | **PDF report** | A report with totals, the AI summary, flagged items, charts, all tables and the PERT analysis, ready to print or submit. | Click **Download PDF report** at the top of the project. |
+| 12 | **Excel export** | The same results as a spreadsheet (4 sheets, plus 2 PERT sheets when PERT data exists) for further work in Excel. | Click **Export to Excel**. |
+| 13 | **Delete a project** | Removes the project and everything in it, permanently. | At the bottom of the project page, tick **I understand**, then click **Delete project**. |
 
 ## File formats that work
 
@@ -23,6 +24,7 @@ Live site: https://cost-analyzer-6lae.onrender.com (the first visit after a quie
 - **Separators:** comma, semicolon, tab or pipe. The app detects which one is used.
 - **Column names:** any order, any capitals. Needed: an item column (`Item`, `Description`, `Expense` or `Name`), an estimate column (`Estimated`, `Estimate`, `Budget` or `Planned`) and an actual column (`Actual`, `Actual Cost`, `Spent` or `Actual Spend`). `Category` (or `Type` / `Group`) is optional. Any other columns are ignored.
 - **Numbers:** `1200`, `1,200.50`, `$1,200`, `Rs 5,000`, `PKR 450` and `USD 100` all work. Negative numbers and text such as "approx 500" do not.
+- **PERT columns (optional):** `ID`; `Optimistic Cost`, `Most Likely Cost`, `Pessimistic Cost`; `Optimistic Days`, `Most Likely Days`, `Pessimistic Days`; `Predecessors` (IDs separated by commas, e.g. `B, D`). Each set of three must be complete and in order (optimistic ≤ most likely ≤ pessimistic). Rows without them are still analysed normally.
 - **Limits:** 2 MB per file, 1,000 rows per file and per project.
 
 ## Messages you might see

@@ -100,4 +100,69 @@
       },
     },
   });
+  // ---------------------------------------------------------------- PERT
+  const pert = data.pert || {};
+  const pdf = (x, mu, sd) => Math.exp(-0.5 * ((x - mu) / sd) ** 2) / (sd * Math.sqrt(2 * Math.PI));
+  function curve(mu, sd) {
+    const pts = [];
+    for (let i = 0; i <= 80; i++) { const x = mu - 4 * sd + (8 * sd * i) / 80; pts.push({ x, y: pdf(x, mu, sd) }); }
+    return pts;
+  }
+  function markers(defs, mu, sd) {
+    const top = pdf(mu, mu, sd) * 1.05;
+    return defs.filter((d) => d.x !== null && d.x !== undefined).map((d) => ({
+      type: "line", label: d.label, data: [{ x: d.x, y: 0 }, { x: d.x, y: top }],
+      borderColor: d.color, borderWidth: 2, borderDash: d.dash || [], pointRadius: 0, fill: false,
+    }));
+  }
+  function distributionChart(id, mu, sd, defs, unit) {
+    const el = document.getElementById(id);
+    if (!el || !(sd > 0)) return;
+    new Chart(el, {
+      type: "line",
+      data: { datasets: [
+        { label: "Probability", data: curve(mu, sd), borderColor: COLORS.actual, backgroundColor: "rgba(36,87,214,0.10)", fill: true, pointRadius: 0, tension: 0.3 },
+        ...markers(defs, mu, sd),
+      ] },
+      options: {
+        parsing: false,
+        plugins: { legend: { position: "top", align: "end", labels: { filter: (i) => i.datasetIndex > 0, boxHeight: 2 } },
+                   tooltip: { enabled: false } },
+        scales: { x: { type: "linear", ticks: { callback: (v) => (unit === "days" ? v.toFixed(0) + "d" : Math.abs(v) >= 1e6 ? (v / 1e6).toFixed(2) + "M" : short(v)) } },
+                  y: { display: false, beginAtZero: true } },
+      },
+    });
+  }
+  if (pert.cost) {
+    const c = pert.cost;
+    distributionChart("chart-pert-cost", c.expected, c.sd, [
+      { x: c.expected, label: "Expected", color: COLORS.actual, dash: [4, 4] },
+      { x: c.budget, label: "Budget", color: COLORS.under },
+      { x: c.actual, label: "Actual", color: COLORS.over },
+    ], "money");
+  }
+  if (pert.schedule) {
+    const s = pert.schedule;
+    distributionChart("chart-pert-time", s.duration, s.sd, [
+      { x: s.duration, label: "Expected", color: COLORS.actual, dash: [4, 4] },
+      { x: s.target, label: "Target", color: COLORS.over },
+    ], "days");
+    const acts = s.activities;
+    const gantt = document.getElementById("chart-gantt");
+    if (gantt) new Chart(gantt, {
+      type: "bar",
+      data: {
+        labels: acts.map((a) => `${a.code}  ${a.item.length > 28 ? a.item.slice(0, 27) + "…" : a.item}`),
+        datasets: [{ label: "Scheduled (ES → EF)", data: acts.map((a) => [a.es, a.ef]),
+                     backgroundColor: acts.map((a) => (a.critical ? COLORS.over : COLORS.estimated)), borderRadius: 3, barPercentage: 0.7 }],
+      },
+      options: {
+        indexAxis: "y",
+        plugins: { legend: { display: false },
+                   tooltip: { callbacks: { label: (ctx) => { const a = acts[ctx.dataIndex];
+                     return `Day ${a.es.toFixed(1)} → ${a.ef.toFixed(1)} · slack ${a.slack.toFixed(1)}${a.critical ? " · critical" : ""}`; } } } },
+        scales: { x: { min: 0, title: { display: true, text: "Days from start" } }, y: { grid: { display: false }, ticks: { font: { size: 11 } } } },
+      },
+    });
+  }
 })();

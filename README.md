@@ -12,7 +12,8 @@ A small Flask web app for comparing **estimated vs actual project costs**, built
 | 2. Calculations | Variance (Actual − Estimated), % variance, on/over/under-budget status, category totals |
 | 3. Charts | Estimated vs actual by category, variance per item, share of actual spend (Chart.js) |
 | 4. AI feature | Unusual-expense detection (IQR outliers + overrun rules) and an AI cost summary via Groq (Llama 3.3 70B), with a rule-based fallback |
-| 5. Report | Downloadable PDF report (charts, tables, AI summary) and Excel export |
+| 5. Report | Downloadable PDF report (charts, tables, AI summary, PERT) and Excel export |
+| PERT | Three-point cost estimates (expected cost, SD, chance of staying within budget) and schedule PERT (expected durations, critical path, ES/EF/LS/LF/slack, Gantt chart, chance of meeting a deadline) |
 | Security | Accounts with private projects, CSRF protection, rate limiting, strict security headers, hardened uploads, security event log |
 
 ## Run locally
@@ -33,6 +34,7 @@ Open http://127.0.0.1:5000, create an account, then create a project. A sample f
 ```
 app.py            Flask routes, upload parsing and validation, database
 calculations.py   Variance, % variance, status, category totals
+pert.py           PERT cost and schedule analysis (critical path, probabilities)
 ai.py             Unusual-expense detection + Groq AI summary (with fallback)
 report.py         PDF report (reportlab + matplotlib) and Excel export (openpyxl)
 tests/            pytest security and functional tests
@@ -49,6 +51,7 @@ sample_output/    Example PDF and Excel reports
 - **Variance** = Actual − Estimated (positive = overspent)
 - **% Variance** = Variance ÷ Estimated × 100 (shown as n/a when the estimate is 0)
 - **Status**: over budget above +2%, under budget below −2%, otherwise on budget
+- **PERT**: expected = (O + 4M + P) ÷ 6, SD = (P − O) ÷ 6; project SD = √(sum of variances on the critical path); P(finish by D) = Φ((D − T) ÷ SD)
 
 ## Tests
 
@@ -57,7 +60,7 @@ pip install pytest pypdf
 python -m pytest -v
 ```
 
-42 tests: 35 security tests (one class per threat T1–T8, plus SQL injection) and 7 functional tests. Latest output: [`docs/test-results.txt`](docs/test-results.txt).
+54 tests: 35 security tests (one class per threat T1–T8, plus SQL injection), 7 functional tests and 12 PERT tests. Latest output: [`docs/test-results.txt`](docs/test-results.txt).
 
 ## Security
 

@@ -85,6 +85,106 @@
   {% endif %}
 </section>
 
+<section class="card pert" id="pert">
+  <h2>PERT analysis</h2>
+  <p class="muted tiny">Three-point estimates: Expected = (O + 4M + P) ÷ 6, standard deviation = (P − O) ÷ 6. Probabilities use the normal distribution.</p>
+  {% set pc, ps = pert.cost, pert.schedule %}
+  {% if not pc and not ps %}
+    <p>No PERT data yet. Add optimistic / most likely / pessimistic <strong>costs</strong> and/or <strong>days</strong> (plus an ID and predecessors for the schedule) to your items, in the upload file or under “PERT details” when adding an item.</p>
+    <a href="{{ url_for('sample_pert') }}" class="small-link">Download a PERT sample file</a>
+  {% endif %}
+
+  {% if pc %}
+  <h3>Cost PERT <span class="muted count">({{ pc.covered }} of {{ pc.total_items }} items have three-point costs{% if pc.covered < pc.total_items %}; the rest count at their single estimate{% endif %})</span></h3>
+  <div class="stats">
+    <div class="stat"><span>Expected cost (E)</span><strong>{{ pc.expected|money }}</strong></div>
+    <div class="stat"><span>Std deviation (SD)</span><strong>{{ pc.sd|money }}</strong></div>
+    <div class="stat {{ 'under' if pc.p_within_budget >= 50 else 'over' }}"><span>Chance within budget</span><strong>{{ pc.p_within_budget }}%</strong><em>budget {{ pc.budget|money }}</em></div>
+    <div class="stat"><span>Actual so far</span><strong>{{ pc.actual|money }}</strong><em>{{ pc.p_within_actual }}% of outcomes ≤ this</em></div>
+  </div>
+  <div class="grid-2 pert-grid">
+    <div>
+      <table class="compact">
+        <thead><tr><th>Confidence</th><th class="num">Cost needed</th></tr></thead>
+        <tbody>{% for c in pc.confidence %}<tr><td>{{ c.level }}%</td><td class="num">{{ c.value|money }}</td></tr>{% endfor %}</tbody>
+      </table>
+      <p class="muted tiny">E.g. budgeting the 90% figure gives a 9-in-10 chance of not overspending.</p>
+    </div>
+    {% if pc.sd > 0 %}<div class="chart-box short"><canvas id="chart-pert-cost" role="img" aria-label="Normal distribution of total project cost with budget and actual marked"></canvas></div>{% endif %}
+  </div>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>ID</th><th>Item</th><th class="num">O</th><th class="num">M</th><th class="num">P</th><th class="num">Expected</th><th class="num">SD</th><th class="num">Actual</th><th class="num">Actual − E</th></tr></thead>
+    <tbody>
+      {% for i in pc["items"] %}
+      <tr>
+        <td class="muted">{{ i.code }}</td><td>{{ i.item }}</td>
+        <td class="num">{{ i.o|money }}</td><td class="num">{{ i.m|money }}</td><td class="num">{{ i.p|money }}</td>
+        <td class="num"><strong>{{ i.expected|money }}</strong></td><td class="num">{{ i.sd|money }}</td>
+        <td class="num">{{ i.actual|money }}</td>
+        <td class="num {{ 'over' if i.actual_vs_expected > 0 else 'under' if i.actual_vs_expected < 0 else '' }}">{{ i.actual_vs_expected|signed }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+
+  {% if ps %}
+  <h3 class="pert-h3">Schedule PERT</h3>
+  {% if ps.error %}
+    <div class="flash flash-error">{{ ps.error }}</div>
+  {% else %}
+  <div class="stats">
+    <div class="stat"><span>Expected duration (T)</span><strong>{{ "%.1f"|format(ps.duration) }} days</strong></div>
+    <div class="stat"><span>Std deviation (SD)</span><strong>{{ "%.1f"|format(ps.sd) }} days</strong></div>
+    <div class="stat"><span>Critical activities</span><strong>{{ ps.critical_path|length }}</strong><em>of {{ ps.activities|length }}</em></div>
+    {% if ps.target_days %}
+    <div class="stat {{ 'under' if ps.p_target >= 50 else 'over' }}"><span>Chance by day {{ "%g"|format(ps.target_days) }}</span><strong>{{ ps.p_target }}%</strong><em>Z = {{ ps.z_target if ps.z_target is not none else "n/a" }}</em></div>
+    {% else %}
+    <div class="stat"><span>Target deadline</span><strong>—</strong><em>set one below</em></div>
+    {% endif %}
+  </div>
+  <p><strong>Critical path:</strong> {{ ps.critical_path|join(" → ") }}</p>
+  <form method="post" action="{{ url_for('set_target', project_id=project.id) }}" class="inline-form target-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label class="inline-label">Target duration (days) <input name="target_days" inputmode="decimal" value="{{ '%g'|format(ps.target_days) if ps.target_days else '' }}" placeholder="e.g. 120"></label>
+    <button type="submit">Calculate probability</button>
+  </form>
+  <div class="grid-2 pert-grid">
+    <div>
+      <table class="compact">
+        <thead><tr><th>Confidence</th><th class="num">Finish within</th></tr></thead>
+        <tbody>{% for c in ps.confidence %}<tr><td>{{ c.level }}%</td><td class="num">{{ c.value }} days</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+    {% if ps.sd > 0 %}<div class="chart-box short"><canvas id="chart-pert-time" role="img" aria-label="Normal distribution of project completion time with target marked"></canvas></div>{% endif %}
+  </div>
+  <div class="chart-box" data-height="{{ [220, ps.activities|length * 26 + 60]|max }}"><canvas id="chart-gantt" role="img" aria-label="Gantt chart of activities by earliest start and finish; critical path in red"></canvas></div>
+  <div class="table-wrap">
+  <table class="compact">
+    <thead><tr><th>ID</th><th>Activity</th><th>Pred.</th><th class="num">O</th><th class="num">M</th><th class="num">P</th><th class="num">tₑ</th><th class="num">SD</th><th class="num">ES</th><th class="num">EF</th><th class="num">LS</th><th class="num">LF</th><th class="num">Slack</th><th></th></tr></thead>
+    <tbody>
+      {% for x in ps.activities %}
+      <tr>
+        <td>{{ x.code }}</td><td>{{ x.item }}</td><td class="muted">{{ x.preds|join(", ") or "—" }}</td>
+        <td class="num">{{ "%g"|format(x.o) }}</td><td class="num">{{ "%g"|format(x.m) }}</td><td class="num">{{ "%g"|format(x.p) }}</td>
+        <td class="num"><strong>{{ "%.2f"|format(x.te) }}</strong></td><td class="num">{{ "%.2f"|format(x.sd) }}</td>
+        <td class="num">{{ "%.1f"|format(x.es) }}</td><td class="num">{{ "%.1f"|format(x.ef) }}</td>
+        <td class="num">{{ "%.1f"|format(x.ls) }}</td><td class="num">{{ "%.1f"|format(x.lf) }}</td>
+        <td class="num">{{ "%.1f"|format(x.slack) }}</td>
+        <td>{% if x.critical %}<span class="badge over">Critical</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="muted tiny">ES/EF = earliest start/finish, LS/LF = latest start/finish (days from project start). Slack = how long an activity can slip without delaying the project; critical activities have none.</p>
+  {% endif %}
+  {% for w in ps.warnings %}<p class="muted tiny">⚠ {{ w }}</p>{% endfor %}
+  {% endif %}
+</section>
+
 <script type="application/json" id="chart-data">{{ chart_data|tojson }}</script>
 <script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}"></script>
 <script src="{{ url_for('static', filename='charts.js') }}"></script>
@@ -101,6 +201,19 @@
         <label>Estimated cost <input name="estimated" inputmode="decimal" required placeholder="0.00"></label>
         <label>Actual cost <input name="actual" inputmode="decimal" required placeholder="0.00"></label>
       </div>
+      <details class="pert-details">
+        <summary>PERT details (optional)</summary>
+        <div class="stack">
+          <div class="row"><label>Activity ID <input name="code" maxlength="20" placeholder="e.g. 2.1"></label>
+            <label>Predecessors <input name="predecessors" maxlength="200" placeholder="e.g. 1.1, 1.2"></label></div>
+          <div class="row3"><label>Optimistic cost <input name="cost_o" inputmode="decimal"></label>
+            <label>Most likely cost <input name="cost_m" inputmode="decimal"></label>
+            <label>Pessimistic cost <input name="cost_p" inputmode="decimal"></label></div>
+          <div class="row3"><label>Optimistic days <input name="dur_o" inputmode="decimal"></label>
+            <label>Most likely days <input name="dur_m" inputmode="decimal"></label>
+            <label>Pessimistic days <input name="dur_p" inputmode="decimal"></label></div>
+        </div>
+      </details>
       <button type="submit">Add item</button>
     </form>
   </section>
@@ -117,7 +230,7 @@
       </div>
       <button type="submit">Upload</button>
     </form>
-    <a href="{{ url_for('sample_template') }}" class="small-link">Download sample template</a>
+    <a href="{{ url_for('sample_template') }}" class="small-link">Download sample template</a> · <a href="{{ url_for('sample_pert') }}" class="small-link">PERT sample</a>
   </section>
 </div>
 
