@@ -13,7 +13,7 @@ A small Flask web app for comparing **estimated vs actual project costs**, built
 | 3. Charts | Estimated vs actual by category, variance per item, share of actual spend (Chart.js) |
 | 4. AI feature | Unusual-expense detection (IQR outliers + overrun rules) and an AI cost summary via Groq (Llama 3.3 70B), with a rule-based fallback |
 | 5. Report | Downloadable PDF report (charts, tables, AI summary, PERT) and Excel export |
-| PERT | Three-point cost estimates (expected cost, SD, chance of staying within budget) and schedule PERT (expected durations, critical path, ES/EF/LS/LF/slack, Gantt chart, chance of meeting a deadline) |
+| PERT | Three-point cost estimates, entered or auto-estimated from the project's own overruns (expected cost, SD, chance of staying within budget) and schedule PERT (expected durations, critical path, ES/EF/LS/LF/slack, Gantt chart, chance of meeting a deadline) |
 | Security | Accounts with private projects, CSRF protection, rate limiting, strict security headers, hardened uploads, security event log |
 
 ## Run locally
@@ -60,7 +60,7 @@ pip install pytest pypdf
 python -m pytest -v
 ```
 
-54 tests: 35 security tests (one class per threat T1–T8, plus SQL injection), 7 functional tests and 12 PERT tests. Latest output: [`docs/test-results.txt`](docs/test-results.txt).
+57 tests: 35 security tests (one class per threat T1–T8, plus SQL injection), 7 functional tests and 15 PERT tests. Latest output: [`docs/test-results.txt`](docs/test-results.txt).
 
 ## Security
 

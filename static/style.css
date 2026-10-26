@@ -108,3 +108,4 @@ table.compact th, table.compact td { padding: 6px 8px; font-size: 13px; }
 .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
 @media (max-width: 560px) { .row3 { grid-template-columns: 1fr; } }
 td.num strong { font-weight: 600; }
+.auto-note { background: #f7f9fc; border: 1px solid var(--border); border-left: 4px solid #9aa3b2; border-radius: 8px; padding: 10px 14px; font-size: 13.5px; margin: 0 0 14px; line-height: 1.55; }

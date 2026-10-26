@@ -4,8 +4,10 @@ Three-point estimates: O = optimistic, M = most likely, P = pessimistic.
     Expected value  E  = (O + 4M + P) / 6
     Std deviation   SD = (P - O) / 6          variance = SD^2
 
-Cost PERT:   project expected cost = sum of item E (items without a three-point estimate
-             count at their single estimate, with no uncertainty); project SD = sqrt(sum of variances).
+Cost PERT:   project expected cost = sum of item E. Items without a three-point estimate get one
+             automatically: M = their estimate, O and P from the project's own overrun history
+             (see auto_cost_factors). Items with no estimate (unplanned) add no expected cost;
+             project SD = sqrt(sum of variances).
 Schedule PERT: activities with three-point durations and predecessors form a network.
              A forward pass gives earliest start/finish (ES/EF), a backward pass latest start/finish
              (LS/LF); slack = LS - ES; activities with zero slack form the critical path.
@@ -13,6 +15,7 @@ Schedule PERT: activities with three-point durations and predecessors form a net
 Probabilities use the normal approximation: P(X <= x) = Phi((x - E) / SD).
 """
 import math
+import statistics
 from collections import deque
 
 CONFIDENCE_LEVELS = [(50, 0.0), (80, 0.8416), (90, 1.2816), (95, 1.6449)]
@@ -42,27 +45,60 @@ def split_predecessors(text):
 
 
 # --------------------------------------------------------------------- cost
+DEFAULT_FACTORS = (0.9, 1.3)   # optimistic -10%, pessimistic +30% when there is too little history
+MIN_HISTORY = 5               # items with both an estimate and an actual needed to calibrate
+
+
+def auto_cost_factors(lines):
+    """Optimistic/pessimistic multipliers for items without three-point costs.
+
+    Calibrated from this project's own record: the actual/estimate ratio of every item that has
+    both, taking the 10th and 90th percentiles. The planner's estimate stays the most likely value.
+    """
+    ratios = sorted(l["actual"] / l["estimated"] for l in lines if l["estimated"] > 0 and l["actual"] > 0)
+    if len(ratios) < MIN_HISTORY:
+        o_f, p_f = DEFAULT_FACTORS
+        basis = (f"standard range of -10% / +30% (only {len(ratios)} item(s) have both an estimate and an "
+                 f"actual cost; {MIN_HISTORY} are needed to calibrate from your data)")
+    else:
+        deciles = statistics.quantiles(ratios, n=10, method="inclusive")
+        o_f = min(max(deciles[0], 0.5), 0.95)   # at least 5% below plan, never below half
+        p_f = max(min(deciles[8], 3.0), 1.10)   # at least 10% above plan, never above triple
+        basis = (f"the spread of actual vs estimated cost across {len(ratios)} items in this project "
+                 f"(10th percentile {deciles[0]:.2f}x, 90th percentile {deciles[8]:.2f}x)")
+    return round(o_f, 3), round(p_f, 3), basis
+
+
 def cost_pert(lines):
-    items, exp_total, var_total, covered = [], 0.0, 0.0, 0
+    items, exp_total, var_total, given, auto = [], 0.0, 0.0, 0, 0
+    o_f, p_f, basis = auto_cost_factors(lines)
     for l in lines:
-        if l.get("cost_o") is None:
-            exp_total += l["estimated"]
-            continue
-        e, sd, var = three_point(l["cost_o"], l["cost_m"], l["cost_p"])
-        covered += 1
+        if l.get("cost_o") is not None:
+            o, m, p, is_auto = l["cost_o"], l["cost_m"], l["cost_p"], False
+            given += 1
+        elif l["estimated"] > 0:
+            o, m, p, is_auto = round(l["estimated"] * o_f, 2), l["estimated"], round(l["estimated"] * p_f, 2), True
+            auto += 1
+        else:
+            continue  # nothing was planned, so there is no estimate to spread (actual still counts below)
+        e, sd, var = three_point(o, m, p)
         exp_total += e
         var_total += var
-        items.append({"code": l.get("code") or "", "item": l["item"], "o": l["cost_o"], "m": l["cost_m"],
-                      "p": l["cost_p"], "expected": e, "sd": sd, "actual": l["actual"],
-                      "actual_vs_expected": round(l["actual"] - e, 2)})
-    if not covered:
+        items.append({"code": l.get("code") or "", "item": l["item"], "o": o, "m": m, "p": p, "expected": e,
+                      "sd": sd, "actual": l["actual"], "actual_vs_expected": round(l["actual"] - e, 2),
+                      "auto": is_auto})
+    if not items:
         return None
     sd_total = math.sqrt(var_total)
     budget = sum(l["estimated"] for l in lines)
     actual = sum(l["actual"] for l in lines)
     items.sort(key=lambda i: i["sd"], reverse=True)
     return {
-        "covered": covered,
+        "covered": given + auto,
+        "given": given,
+        "auto": auto,
+        "auto_basis": basis if auto else None,
+        "auto_factors": {"o": o_f, "p": p_f} if auto else None,
         "total_items": len(lines),
         "expected": round(exp_total, 2),
         "sd": round(sd_total, 2),

@@ -284,7 +284,8 @@ def _pert_story(pert, st, W):
     if cost:
         out.append(_p("Cost PERT", st["h2"]))
         rows = [["Measure", "Value"],
-                ["Items with three-point costs", f"{cost['covered']} of {cost['total_items']}"],
+                ["Items with your own three-point costs", str(cost["given"])],
+                ["Items with auto-estimated ranges", str(cost["auto"])],
                 ["Expected total cost (E)", _money(cost["expected"])],
                 ["Standard deviation", _money(cost["sd"])],
                 ["Budget (sum of estimates)", _money(cost["budget"])],
@@ -292,10 +293,14 @@ def _pert_story(pert, st, W):
                 ["Actual cost so far", _money(cost["actual"])]]
         rows += [[f"Cost at {c['level']}% confidence", _money(c["value"])] for c in cost["confidence"]]
         out.append(_table(rows, [W * .55, W * .45], [1]))
+        if cost["auto"]:
+            out.append(_p(f"Auto-estimated ranges: most likely = the estimate; optimistic = estimate x "
+                          f"{cost['auto_factors']['o']:.2f}, pessimistic = estimate x {cost['auto_factors']['p']:.2f}, "
+                          f"based on {cost['auto_basis']}. Rows marked * use these ranges.", st["small"]))
         out.append(Spacer(1, 6))
         rows = [["ID", "Item", "O", "M", "P", "Expected", "SD", "Actual"]]
         for i in cost["items"][:25]:
-            rows.append([i["code"], _p(i["item"], st["cell"]), _money(i["o"]), _money(i["m"]), _money(i["p"]),
+            rows.append([i["code"], _p(i["item"] + (" *" if i["auto"] else ""), st["cell"]), _money(i["o"]), _money(i["m"]), _money(i["p"]),
                          _money(i["expected"]), _money(i["sd"]), _money(i["actual"])])
         out.append(_table(rows, [W * .07, W * .25, W * .11, W * .11, W * .11, W * .12, W * .1, W * .13],
                           [2, 3, 4, 5, 6, 7]))
@@ -403,12 +408,14 @@ def build_xlsx(project_name, analysis, anomalies, summary, pert=None):
     cost, sched = (pert or {}).get("cost"), (pert or {}).get("schedule")
     if cost:
         ws = wb.create_sheet("PERT cost")
-        sheet(ws, ["ID", "Item", "Optimistic", "Most likely", "Pessimistic", "Expected", "Std dev", "Actual"],
-              [[i["code"], i["item"], i["o"], i["m"], i["p"], i["expected"], i["sd"], i["actual"]] for i in cost["items"]],
-              [8, 32, 14, 14, 14, 14, 12, 14], money_cols=(3, 4, 5, 6, 7, 8))
+        sheet(ws, ["ID", "Item", "Optimistic", "Most likely", "Pessimistic", "Expected", "Std dev", "Actual", "Range source"],
+              [[i["code"], i["item"], i["o"], i["m"], i["p"], i["expected"], i["sd"], i["actual"],
+                "auto" if i["auto"] else "entered"] for i in cost["items"]],
+              [8, 32, 14, 14, 14, 14, 12, 14, 12], money_cols=(3, 4, 5, 6, 7, 8))
         ws.append([])
         for label, val in [("Expected total cost", cost["expected"]), ("Standard deviation", cost["sd"]),
-                           ("Budget", cost["budget"]), ("P(within budget) %", cost["p_within_budget"])] + \
+                           ("Budget", cost["budget"]), ("P(within budget) %", cost["p_within_budget"]),
+                           ("Auto-range basis", cost["auto_basis"] or "none (all ranges entered)")] + \
                           [(f"Cost at {c['level']}% confidence", c["value"]) for c in cost["confidence"]]:
             ws.append([None, label, val])
     if sched and not sched.get("error"):

@@ -47,7 +47,7 @@ def test_pdf_and_excel_reports(client):
     text = "".join(p.extract_text() for p in PdfReader(io.BytesIO(pdf.data)).pages)
     assert "Cost Report: Report test" in text and "2,222,500.00" in text
     wb = load_workbook(io.BytesIO(client.get(f"/projects/{pid}/report.xlsx").data))
-    assert wb.sheetnames == ["Summary", "Items", "Categories", "Unusual expenses"]
+    assert wb.sheetnames == ["Summary", "Items", "Categories", "Unusual expenses", "PERT cost"]
     assert wb["Items"].max_row == 11
 
 

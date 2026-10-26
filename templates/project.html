@@ -90,12 +90,18 @@
   <p class="muted tiny">Three-point estimates: Expected = (O + 4M + P) ÷ 6, standard deviation = (P − O) ÷ 6. Probabilities use the normal distribution.</p>
   {% set pc, ps = pert.cost, pert.schedule %}
   {% if not pc and not ps %}
-    <p>No PERT data yet. Add optimistic / most likely / pessimistic <strong>costs</strong> and/or <strong>days</strong> (plus an ID and predecessors for the schedule) to your items, in the upload file or under “PERT details” when adding an item.</p>
-    <a href="{{ url_for('sample_pert') }}" class="small-link">Download a PERT sample file</a>
+    <p>Add items with an estimated cost to see the cost PERT.</p>
   {% endif %}
 
   {% if pc %}
-  <h3>Cost PERT <span class="muted count">({{ pc.covered }} of {{ pc.total_items }} items have three-point costs{% if pc.covered < pc.total_items %}; the rest count at their single estimate{% endif %})</span></h3>
+  <h3>Cost PERT <span class="muted count">({{ pc.given }} item{{ '' if pc.given == 1 else 's' }} with your own three-point costs, {{ pc.auto }} auto-estimated)</span></h3>
+  {% if pc.auto %}
+  <div class="auto-note">
+    <strong>Auto-estimated ranges.</strong> For the {{ pc.auto }} item{{ '' if pc.auto == 1 else 's' }} without three-point costs, the app used the estimate as the most likely cost and set
+    optimistic = estimate × {{ "%.2f"|format(pc.auto_factors.o) }} and pessimistic = estimate × {{ "%.2f"|format(pc.auto_factors.p) }},
+    based on {{ pc.auto_basis }}. Add <em>Optimistic / Most Likely / Pessimistic Cost</em> columns to use your own figures.
+  </div>
+  {% endif %}
   <div class="stats">
     <div class="stat"><span>Expected cost (E)</span><strong>{{ pc.expected|money }}</strong></div>
     <div class="stat"><span>Std deviation (SD)</span><strong>{{ pc.sd|money }}</strong></div>
@@ -118,7 +124,7 @@
     <tbody>
       {% for i in pc["items"] %}
       <tr>
-        <td class="muted">{{ i.code }}</td><td>{{ i.item }}</td>
+        <td class="muted">{{ i.code }}</td><td>{{ i.item }}{% if i.auto %} <span class="badge on" title="Range estimated automatically">auto</span>{% endif %}</td>
         <td class="num">{{ i.o|money }}</td><td class="num">{{ i.m|money }}</td><td class="num">{{ i.p|money }}</td>
         <td class="num"><strong>{{ i.expected|money }}</strong></td><td class="num">{{ i.sd|money }}</td>
         <td class="num">{{ i.actual|money }}</td>
@@ -130,8 +136,11 @@
   </div>
   {% endif %}
 
-  {% if ps %}
   <h3 class="pert-h3">Schedule PERT</h3>
+  {% if not ps %}
+    <p class="muted">The schedule needs information a cost sheet doesn't contain: how many days each task takes (optimistic / most likely / pessimistic) and which tasks must finish first. Add <em>ID</em>, <em>Optimistic / Most Likely / Pessimistic Days</em> and <em>Predecessors</em> columns, or use “PERT details” when adding an item. <a href="{{ url_for('sample_pert') }}" class="small-link">Download a PERT sample file</a></p>
+  {% endif %}
+  {% if ps %}
   {% if ps.error %}
     <div class="flash flash-error">{{ ps.error }}</div>
   {% else %}
