@@ -1,0 +1,49 @@
+Spent;Expense;Vendor / Team;Group;Planned;Invoice Date
+Rs 65,000;Requirements workshops with client;In-house;Analysis;Rs 60,000;03/08/2026
+Rs 40,000;User stories and acceptance criteria;In-house;Analysis;Rs 40,000;06/08/2026
+Rs 12,000;Competitor app review;In-house;Analysis;Rs 15,000;07/08/2026
+Rs 95,000;UI wireframes (12 screens);Freelancer - Ayesha;Design;Rs 90,000;14/08/2026
+Rs 1,50,000;High-fidelity mock-ups;Freelancer - Ayesha;Design;Rs 1,20,000;21/08/2026
+Rs 35,000;Logo and brand kit;Freelancer - Ayesha;Design;Rs 35,000;18/08/2026
+Rs 24,000;Design review sessions;In-house;Design;Rs 20,000;22/08/2026
+Rs 3,80,000;Backend API (orders, menu, users);In-house;Development;Rs 3,50,000;15/09/2026
+Rs 78,000;Database schema and migrations;In-house;Development;Rs 80,000;02/09/2026
+Rs 2,40,000;Admin dashboard (web);In-house;Development;Rs 2,20,000;25/09/2026
+Rs 4,70,000;Customer mobile app (Flutter);In-house;Development;Rs 4,00,000;05/10/2026
+Rs 1,45,000;Payment gateway integration;In-house;Development;Rs 90,000;08/10/2026
+Rs 28,000;Push notifications;In-house;Development;Rs 30,000;09/10/2026
+Rs 1,05,000;Delivery tracking map;In-house;Development;Rs 1,10,000;12/10/2026
+Rs 0;Loyalty points module;In-house;Development;Rs 60,000;—
+Rs 42,000;Test plan and test cases;QA team;Testing;Rs 40,000;10/10/2026
+Rs 90,000;Manual testing (2 rounds);QA team;Testing;Rs 70,000;16/10/2026
+Rs 48,000;Automated API tests;QA team;Testing;Rs 50,000;17/10/2026
+Rs 45,000;Security testing;QA team;Testing;Rs 45,000;18/10/2026
+Rs 30,000;User acceptance testing;QA team;Testing;Rs 25,000;20/10/2026
+Rs 57,000;EC2 server (3 months);AWS;Hosting and cloud;Rs 54,000;monthly
+Rs 44,100;RDS PostgreSQL (3 months);AWS;Hosting and cloud;Rs 42,000;monthly
+Rs 5,400;S3 storage and backups;AWS;Hosting and cloud;Rs 6,000;monthly
+Rs 4,500;Domain and DNS;Cloudflare;Hosting and cloud;Rs 4,500;01/08/2026
+Rs 31,000;SMS OTP (5,000 messages);Twilio;Third-party services;Rs 18,000;monthly
+Rs 12,500;Maps API usage;Google;Third-party services;Rs 15,000;monthly
+Rs 0;Cloud messaging;Firebase;Third-party services;Rs 0;free tier
+Rs 2,800;AI menu-description generator;Groq;Third-party services;Rs 3,000;monthly
+Rs 28,000;App Store developer account;Apple;Licences;Rs 28,000;05/08/2026
+Rs 7,000;Play Store developer account;Google;Licences;Rs 7,000;05/08/2026
+Rs 30,000;IDE licences (2 seats);JetBrains;Licences;Rs 30,000;01/08/2026
+Rs 13,500;Figma Professional (3 months);Figma;Licences;Rs 13,500;01/08/2026
+Rs 1,25,000;Project management;In-house;Management;Rs 1,20,000;monthly
+Rs 38,000;Client meetings and travel;In-house;Management;Rs 25,000;various
+Rs 15,000;Weekly status reports;In-house;Management;Rs 15,000;weekly
+Rs 46,000;Deployment and go-live;In-house;Deployment;Rs 40,000;22/10/2026
+Rs 18,000;Staff training for restaurant;In-house;Deployment;Rs 20,000;24/10/2026
+Rs 22,000;Data migration from old menu;In-house;Deployment;Rs 25,000;23/10/2026
+Rs 72,000;Bug fixing after launch (1 month);In-house;Support;Rs 60,000;ongoing
+Rs 8,000;Monitoring and uptime alerts;In-house;Support;Rs 8,000;monthly
+Rs 14,500;Printed QR table cards;Printer;Marketing;Rs 12,000;19/10/2026
+Rs 40,000;Launch ads (Facebook/Instagram);Meta;Marketing;Rs 40,000;25/10/2026
+Rs 30,000;Food photography;Photographer;Marketing;Rs 35,000;11/10/2026
+Rs 15,000;Office internet (3 months);In-house;Overheads;Rs 15,000;monthly
+Rs 31,500;Electricity share (3 months);In-house;Overheads;Rs 24,000;monthly
+Rs 10,000;Payment gateway setup fee;Bank;Overheads;Rs 10,000;30/09/2026
+Rs 18,000;Emergency server upgrade;In-house;;Rs 0;14/10/2026
+Rs 40,000;Extra screens requested by client;Freelancer - Ayesha;Design;Rs 0;28/09/2026
