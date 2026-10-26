@@ -77,3 +77,22 @@ h3 { font-size: 15px; margin: 6px 0 10px; }
 .flash { padding: 10px 14px; border-radius: 8px; margin-bottom: 14px; }
 .flash-success { background: var(--ok-bg); color: var(--ok); }
 .flash-error { background: var(--err-bg); color: var(--err); }
+.topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.userbox { display: flex; align-items: center; gap: 12px; color: #cbd5e1; font-size: 14px; }
+.userbox strong { color: #fff; }
+button.ghost { background: transparent; border: 1px solid #475569; color: #e2e8f0; padding: 6px 12px; font-weight: 500; }
+@media (max-width: 560px) { .who { display: none; } }
+.container.narrow { max-width: 440px; padding-top: 48px; }
+.auth h1 { margin-bottom: 4px; }
+.hint { font-size: 12px; color: var(--muted); }
+input[type=password] { padding: 9px 10px; border: 1px solid var(--border); border-radius: 7px; font: inherit; color: var(--text); }
+.small-gap { margin: 14px 0 0; font-size: 14px; }
+.small-gap a { color: var(--accent); }
+.error-card { text-align: center; padding: 36px 24px; }
+.error-card .code { font-size: 44px; font-weight: 800; color: #cbd5e1; margin: 0; }
+.danger-zone { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; border-color: #f5c2c0; }
+.danger-zone h2 { color: var(--err); }
+.danger-zone p { margin: 0; }
+.confirm-delete { display: flex; align-items: center; gap: 14px; }
+.check { flex-direction: row; align-items: center; gap: 6px; color: var(--text); }
+button.danger { background: var(--err); }

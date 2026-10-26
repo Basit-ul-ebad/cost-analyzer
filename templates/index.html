@@ -4,6 +4,7 @@
   <h1>Projects</h1>
   <p class="muted">Create a project, then enter cost items by hand or upload an Excel/CSV sheet.</p>
   <form method="post" action="{{ url_for('create_project') }}" class="inline-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input name="name" placeholder="e.g. Office Renovation 2026" maxlength="80" required>
     <button type="submit">Create project</button>
   </form>

@@ -39,7 +39,7 @@
 </div>
 <section class="card">
   <h2>Variance per item <span class="muted legend-note"><i class="dot over"></i>over budget <i class="dot under"></i>under budget <i class="dot on"></i>on budget</span></h2>
-  <div class="chart-box" style="height: {{ [240, a.lines|length * 30 + 40]|max }}px"><canvas id="chart-variance" aria-label="Horizontal bar chart of variance per item" role="img"></canvas></div>
+  <div class="chart-box" data-height="{{ [240, a.lines|length * 30 + 40]|max }}"><canvas id="chart-variance" aria-label="Horizontal bar chart of variance per item" role="img"></canvas></div>
 </section>
 
 <section class="card ai" id="ai">
@@ -72,6 +72,7 @@
   <div class="summary-head">
     <h3>Cost analysis summary</h3>
     <form method="post" action="{{ url_for('ai_summary', project_id=project.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button type="submit">{{ 'Regenerate' if summary else 'Generate' }} AI summary</button>
     </form>
   </div>
@@ -93,6 +94,7 @@
   <section class="card">
     <h2>Add a cost item</h2>
     <form method="post" action="{{ url_for('add_item', project_id=project.id) }}" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label>Item <input name="item" maxlength="100" required placeholder="e.g. Laptops"></label>
       <label>Category <input name="category" maxlength="50" placeholder="e.g. Hardware"></label>
       <div class="row">
@@ -107,6 +109,7 @@
     <h2>Upload Excel / CSV</h2>
     <p class="muted">Columns needed: <code>Item</code>, <code>Estimated</code>, <code>Actual</code> (optional <code>Category</code>). Max 2&nbsp;MB, {{ 1000 }} rows.</p>
     <form method="post" action="{{ url_for('upload', project_id=project.id) }}" enctype="multipart/form-data" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="file" name="file" accept=".csv,.xlsx" required>
       <div class="radios">
         <label><input type="radio" name="mode" value="append" checked> Add to existing items</label>
@@ -136,6 +139,7 @@
         <td><span class="badge {{ it.status|status_class }}">{{ it.status }}</span></td>
         <td>
           <form method="post" action="{{ url_for('delete_item', project_id=project.id, item_id=it.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button class="link-btn" title="Delete">Remove</button>
           </form>
         </td>
@@ -182,4 +186,15 @@
   </div>
 </section>
 {% endif %}
+<section class="card danger-zone">
+  <div>
+    <h2>Delete this project</h2>
+    <p class="muted">Removes the project, all its cost items and its AI summary. This cannot be undone.</p>
+  </div>
+  <form method="post" action="{{ url_for('delete_project', project_id=project.id) }}" class="confirm-delete">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label class="check"><input type="checkbox" required> I understand</label>
+    <button type="submit" class="danger">Delete project</button>
+  </form>
+</section>
 {% endblock %}

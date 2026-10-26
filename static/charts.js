@@ -4,6 +4,11 @@
   if (!dataEl || typeof Chart === "undefined") return;
   const data = JSON.parse(dataEl.textContent);
 
+  // Box heights come from data-height (inline style attributes are blocked by the CSP).
+  document.querySelectorAll(".chart-box[data-height]").forEach((el) => {
+    el.style.height = parseInt(el.dataset.height, 10) + "px";
+  });
+
   const COLORS = {
     estimated: "#93a4c3",
     actual: "#2457d6",

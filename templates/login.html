@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Sign in · Cost Analyzer{% endblock %}
+{% block main_class %}narrow{% endblock %}
+{% block content %}
+<section class="card auth">
+  <h1>Sign in</h1>
+  <p class="muted">Your projects are private to your account.</p>
+  <form method="post" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>Username <input name="username" autocomplete="username" maxlength="30" required autofocus></label>
+    <label>Password <input type="password" name="password" autocomplete="current-password" maxlength="128" required></label>
+    <button type="submit">Sign in</button>
+  </form>
+  <p class="muted small-gap">No account yet? <a href="{{ url_for('register') }}">Create one</a></p>
+</section>
+{% endblock %}

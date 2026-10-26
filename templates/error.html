@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} · Cost Analyzer{% endblock %}
+{% block main_class %}narrow{% endblock %}
+{% block content %}
+<section class="card error-card">
+  <p class="code">{{ code }}</p>
+  <h1>{{ title }}</h1>
+  <p class="muted">{{ message }}</p>
+  <a class="btn" href="{{ url_for('index') }}">Back to projects</a>
+</section>
+{% endblock %}

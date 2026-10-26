@@ -1,13 +1,36 @@
-"""Cost Analyzer - Flask app: data entry, calculations, charts, AI insights."""
+"""Cost Analyzer - Flask app: data entry, calculations, charts, AI insights, reports.
+
+Security controls (see docs/security-checklist.md):
+  * accounts with hashed passwords; every project route checks ownership (404 otherwise)
+  * CSRF tokens on every form (Flask-WTF)
+  * rate limits per user / IP (Flask-Limiter)
+  * security headers incl. a strict Content-Security-Policy
+  * hardened session cookies; debug mode off unless explicitly enabled in development
+  * upload validation: extension, size, file signature, zip-bomb guard, row/column/value checks
+  * security event log in instance/security.log
+"""
 import hashlib
+import io
 import json
+import logging
 import os
+import re
+import secrets
 import sqlite3
+import zipfile
+from datetime import timedelta
+from functools import wraps
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import pandas as pd
 from flask import (Flask, Response, abort, flash, g, redirect, render_template,
-                   request, send_from_directory, url_for)
+                   request, send_from_directory, session, url_for)
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from flask_wtf.csrf import CSRFError, CSRFProtect
+from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from ai import detect_anomalies, generate_summary
 from calculations import analyse_project
@@ -15,20 +38,85 @@ from report import build_pdf, build_xlsx, safe_filename
 
 BASE_DIR = Path(__file__).resolve().parent
 
-# Load settings (e.g. GROQ_API_KEY) from a local .env file if python-dotenv is installed.
+# Load settings (SECRET_KEY, GROQ_API_KEY, ...) from a local .env file if python-dotenv is installed.
 try:
     from dotenv import load_dotenv
     load_dotenv(BASE_DIR / ".env")
 except ImportError:
     pass
 
-DB_PATH = BASE_DIR / "instance" / "costs.db"
+APP_ENV = os.environ.get("APP_ENV", "development").strip().lower()
+IS_PROD = APP_ENV == "production"
+INSTANCE_DIR = BASE_DIR / "instance"
+DB_PATH = Path(os.environ.get("DATABASE_PATH", INSTANCE_DIR / "costs.db"))
 ALLOWED_EXTENSIONS = {".csv", ".xlsx"}
+MAX_UPLOAD_BYTES = 2 * 1024 * 1024
+MAX_UNZIPPED_BYTES = 30 * 1024 * 1024   # an .xlsx is a zip: refuse if it expands beyond this
+MAX_ZIP_RATIO = 100                     # ...or if any member compresses more than 100:1
 MAX_ROWS = 1000
+USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,30}$")
+WEAK_KEYS = {"", "dev-only-change-me", "change-me-to-a-long-random-string"}
+
+
+def load_secret_key():
+    key = os.environ.get("SECRET_KEY", "").strip()
+    if key in WEAK_KEYS or len(key) < 32:
+        if IS_PROD:
+            raise RuntimeError(
+                "SECRET_KEY must be set to a random value of at least 32 characters in production. "
+                "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+        # Development: a random key per run (logins reset when the server restarts).
+        return secrets.token_hex(32)
+    return key
+
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-only-change-me")
-app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024  # 2 MB upload limit
+app.config.update(
+    SECRET_KEY=load_secret_key(),
+    MAX_CONTENT_LENGTH=MAX_UPLOAD_BYTES,
+    SESSION_COOKIE_NAME="__Host-session" if IS_PROD else "session",
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=IS_PROD,
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
+    WTF_CSRF_TIME_LIMIT=None,  # token lives as long as the session
+    RATELIMIT_STORAGE_URI=os.environ.get("RATELIMIT_STORAGE_URI", "memory://"),
+    RATELIMIT_HEADERS_ENABLED=True,
+)
+if IS_PROD:
+    # Hosting platforms put the app behind one proxy; trust its X-Forwarded-* headers
+    # so rate limits see the real client IP and URLs use https.
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
+csrf = CSRFProtect(app)
+
+# ---------- security event log ----------
+LOG_PATH = DB_PATH.parent / "security.log"
+LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+security_log = logging.getLogger("security")
+security_log.setLevel(logging.INFO)
+if not security_log.handlers:
+    _fh = RotatingFileHandler(LOG_PATH, maxBytes=1_000_000, backupCount=3)
+    _fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    security_log.addHandler(_fh)
+    security_log.addHandler(logging.StreamHandler())
+
+
+def log_event(event, **details):
+    who = session.get("username", "-")
+    extra = " ".join(f"{k}={v!r}" for k, v in details.items())
+    security_log.warning(f"{event} user={who} ip={get_remote_address()} path={request.path!r} {extra}")
+
+
+# ---------- rate limiting ----------
+def rate_key():
+    """Signed-in users are limited per account, everyone else per IP address."""
+    uid = session.get("user_id")
+    return f"user:{uid}" if uid else f"ip:{get_remote_address()}"
+
+
+limiter = Limiter(key_func=rate_key, app=app, default_limits=["300 per minute"])
 
 # Header names we accept from uploaded files, mapped to our internal columns.
 COLUMN_ALIASES = {
@@ -42,7 +130,7 @@ COLUMN_ALIASES = {
 # ---------- database ----------
 def get_db():
     if "db" not in g:
-        DB_PATH.parent.mkdir(exist_ok=True)
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         g.db = sqlite3.connect(DB_PATH)
         g.db.row_factory = sqlite3.Row
         g.db.execute("PRAGMA foreign_keys = ON")
@@ -60,9 +148,16 @@ def init_db():
     db = get_db()
     db.executescript(
         """
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            password_hash TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
         CREATE TABLE IF NOT EXISTS projects (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
+            owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
         CREATE TABLE IF NOT EXISTS cost_items (
@@ -82,6 +177,12 @@ def init_db():
         );
         """
     )
+    # Databases created before accounts existed: add the owner column.
+    # Old projects keep owner_id NULL and are therefore visible to nobody.
+    cols = {r["name"] for r in db.execute("PRAGMA table_info(projects)")}
+    if "owner_id" not in cols:
+        db.execute("ALTER TABLE projects ADD COLUMN owner_id INTEGER REFERENCES users(id)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_projects_owner ON projects(owner_id)")
     db.commit()
 
 
@@ -89,13 +190,44 @@ with app.app_context():
     init_db()
 
 
+# ---------- authentication & authorisation ----------
+def current_user_id():
+    return session.get("user_id")
+
+
+def login_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if current_user_id() is None:
+            flash("Please sign in to continue", "info")
+            return redirect(url_for("login", next=request.path))
+        return view(*args, **kwargs)
+    return wrapped
+
+
 def get_project_or_404(project_id):
+    """The single access-control check: a project is only visible to its owner.
+
+    Returns 404 (not 403) so other users cannot tell which project ids exist.
+    """
     project = get_db().execute(
-        "SELECT * FROM projects WHERE id = ?", (project_id,)
+        "SELECT * FROM projects WHERE id = ? AND owner_id = ?", (project_id, current_user_id())
     ).fetchone()
     if project is None:
+        log_event("PROJECT_ACCESS_DENIED", project_id=project_id)
         abort(404)
     return project
+
+
+def safe_next(target):
+    """Only allow redirects to a local path (prevents open redirects after login)."""
+    if target and target.startswith("/") and not target.startswith("//") and "\\" not in target:
+        return target
+    return url_for("index")
+
+
+# Precomputed hash so a login for an unknown username takes as long as a real one.
+_DUMMY_HASH = generate_password_hash("not-a-real-password")
 
 
 # ---------- validation helpers ----------
@@ -105,18 +237,41 @@ def parse_amount(raw, field):
         value = float(str(raw).replace(",", "").strip())
     except (TypeError, ValueError):
         raise ValueError(f"{field} must be a number")
-    if value < 0 or value > 1e12:
+    if value != value or value < 0 or value > 1e12:  # value != value catches NaN
         raise ValueError(f"{field} must be between 0 and 1,000,000,000,000")
     return round(value, 2)
 
 
 def clean_text(raw, field, max_len=100, default=None):
-    text = str(raw or "").strip()
-    if not text:
+    text = " ".join(str(raw or "").split())  # collapse whitespace, drop control newlines/tabs
+    if not text or text.lower() == "nan":
         if default is not None:
             return default
         raise ValueError(f"{field} is required")
     return text[:max_len]
+
+
+def check_file_signature(ext, data):
+    """Check the file's real content matches its extension (a renamed .exe is rejected)."""
+    if ext == ".xlsx":
+        if not data.startswith(b"PK\x03\x04"):
+            raise ValueError("The file is not a real Excel (.xlsx) file")
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                infos = zf.infolist()
+                names = {i.filename for i in infos}
+                total = sum(i.file_size for i in infos)
+                ratio = max((i.file_size / max(i.compress_size, 1) for i in infos), default=0)
+        except zipfile.BadZipFile:
+            raise ValueError("The Excel file is damaged")
+        if "[Content_Types].xml" not in names or not any(n.startswith("xl/") for n in names):
+            raise ValueError("The file is not a real Excel (.xlsx) file")
+        if total > MAX_UNZIPPED_BYTES or ratio > MAX_ZIP_RATIO:
+            raise ValueError("The Excel file expands to an unsafe size (possible zip bomb)")
+    else:  # .csv must be plain text
+        head = data[:4096]
+        if b"\x00" in head or head.startswith((b"PK", b"MZ", b"%PDF", b"\x7fELF")):
+            raise ValueError("The file is not a plain-text CSV file")
 
 
 def read_upload(file_storage):
@@ -124,12 +279,22 @@ def read_upload(file_storage):
     ext = Path(file_storage.filename or "").suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
         raise ValueError("Only .csv and .xlsx files are allowed")
+    data = file_storage.read(MAX_UPLOAD_BYTES + 1)
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise ValueError("File is larger than 2 MB")
+    if not data:
+        raise ValueError("The file is empty")
+    check_file_signature(ext, data)
 
     try:
         if ext == ".csv":
-            df = pd.read_csv(file_storage, dtype=str)
+            try:
+                text = data.decode("utf-8-sig")
+            except UnicodeDecodeError:
+                text = data.decode("cp1252", errors="replace")  # Excel's default on Windows
+            df = pd.read_csv(io.StringIO(text), dtype=str, nrows=MAX_ROWS + 1)
         else:
-            df = pd.read_excel(file_storage, dtype=str, engine="openpyxl")
+            df = pd.read_excel(io.BytesIO(data), dtype=str, engine="openpyxl", nrows=MAX_ROWS + 1)
     except Exception:
         raise ValueError("The file could not be read. Is it a valid CSV/Excel file?")
 
@@ -172,18 +337,89 @@ def read_upload(file_storage):
     return rows
 
 
-# ---------- routes ----------
+# ---------- account routes ----------
+@app.route("/register", methods=["GET", "POST"])
+@limiter.limit("5 per hour", key_func=get_remote_address, methods=["POST"])
+def register():
+    if current_user_id():
+        return redirect(url_for("index"))
+    if request.method == "POST":
+        username = (request.form.get("username") or "").strip()
+        password = request.form.get("password") or ""
+        confirm = request.form.get("confirm") or ""
+        error = None
+        if not USERNAME_RE.match(username):
+            error = "Username must be 3-30 characters: letters, numbers, dot, dash or underscore"
+        elif len(password) < 8 or len(password) > 128:
+            error = "Password must be 8-128 characters long"
+        elif password.lower() == username.lower():
+            error = "Password must not be the same as the username"
+        elif password != confirm:
+            error = "Passwords do not match"
+        if error is None:
+            db = get_db()
+            try:
+                cur = db.execute(
+                    "INSERT INTO users (username, password_hash) VALUES (?, ?)",
+                    (username, generate_password_hash(password)),
+                )
+                db.commit()
+            except sqlite3.IntegrityError:
+                error = "That username is taken"
+            else:
+                session.clear()  # new session id: prevents session fixation
+                session.permanent = True
+                session["user_id"], session["username"] = cur.lastrowid, username
+                flash(f"Welcome, {username}! Your account was created.", "success")
+                return redirect(url_for("index"))
+        flash(error, "error")
+    return render_template("register.html")
+
+
+@app.route("/login", methods=["GET", "POST"])
+@limiter.limit("10 per 15 minutes", key_func=get_remote_address, methods=["POST"])
+def login():
+    if current_user_id():
+        return redirect(url_for("index"))
+    if request.method == "POST":
+        username = (request.form.get("username") or "").strip()
+        password = request.form.get("password") or ""
+        user = get_db().execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+        ok = check_password_hash(user["password_hash"] if user else _DUMMY_HASH, password)
+        if user and ok:
+            session.clear()
+            session.permanent = True
+            session["user_id"], session["username"] = user["id"], user["username"]
+            return redirect(safe_next(request.args.get("next")))
+        log_event("LOGIN_FAILED", attempted_username=username[:40])
+        flash("Invalid username or password", "error")  # same message either way
+    return render_template("login.html")
+
+
+@app.post("/logout")
+def logout():
+    session.clear()
+    flash("You have been signed out", "info")
+    return redirect(url_for("login"))
+
+
+# ---------- project routes ----------
 @app.route("/")
+@login_required
 def index():
     projects = get_db().execute(
         """SELECT p.id, p.name, p.created_at, COUNT(c.id) AS item_count
            FROM projects p LEFT JOIN cost_items c ON c.project_id = p.id
-           GROUP BY p.id ORDER BY p.id DESC"""
+           WHERE p.owner_id = ?
+           GROUP BY p.id ORDER BY p.id DESC""",
+        (current_user_id(),),
     ).fetchall()
     return render_template("index.html", projects=projects)
 
 
 @app.post("/projects")
+@login_required
+@limiter.limit("30 per hour")
 def create_project():
     try:
         name = clean_text(request.form.get("name"), "Project name", 80)
@@ -191,18 +427,27 @@ def create_project():
         flash(str(e), "error")
         return redirect(url_for("index"))
     db = get_db()
-    cur = db.execute("INSERT INTO projects (name) VALUES (?)", (name,))
+    cur = db.execute("INSERT INTO projects (name, owner_id) VALUES (?, ?)", (name, current_user_id()))
     db.commit()
     return redirect(url_for("project_detail", project_id=cur.lastrowid))
 
 
+@app.post("/projects/<int:project_id>/delete")
+@login_required
+def delete_project(project_id):
+    project = get_project_or_404(project_id)
+    db = get_db()
+    db.execute("DELETE FROM projects WHERE id = ? AND owner_id = ?", (project_id, current_user_id()))
+    db.commit()
+    flash(f"Deleted project “{project['name']}”", "info")
+    return redirect(url_for("index"))
+
+
 @app.route("/projects/<int:project_id>")
+@login_required
 def project_detail(project_id):
     project = get_project_or_404(project_id)
-    items = get_db().execute(
-        "SELECT * FROM cost_items WHERE project_id = ? ORDER BY id", (project_id,)
-    ).fetchall()
-    analysis = analyse_project(items)
+    analysis = load_analysis(project_id)
     anomalies = detect_anomalies(analysis["lines"])
     summary = get_db().execute(
         "SELECT * FROM ai_summaries WHERE project_id = ?", (project_id,)
@@ -243,11 +488,12 @@ def report_inputs(project_id):
 def _download(data, mimetype, filename):
     resp = Response(data, mimetype=mimetype)
     resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
-    resp.headers["Cache-Control"] = "no-store"
     return resp
 
 
 @app.route("/projects/<int:project_id>/report.pdf")
+@login_required
+@limiter.limit("10 per minute")
 def report_pdf(project_id):
     project, analysis, anomalies, summary = report_inputs(project_id)
     if analysis is None:
@@ -258,6 +504,8 @@ def report_pdf(project_id):
 
 
 @app.route("/projects/<int:project_id>/report.xlsx")
+@login_required
+@limiter.limit("10 per minute")
 def report_xlsx(project_id):
     project, analysis, anomalies, summary = report_inputs(project_id)
     if analysis is None:
@@ -269,6 +517,8 @@ def report_xlsx(project_id):
 
 
 @app.post("/projects/<int:project_id>/ai-summary")
+@login_required
+@limiter.limit("5 per minute;30 per day")
 def ai_summary(project_id):
     project = get_project_or_404(project_id)
     analysis = load_analysis(project_id)
@@ -307,6 +557,8 @@ def build_chart_data(analysis):
 
 
 @app.post("/projects/<int:project_id>/items")
+@login_required
+@limiter.limit("60 per minute")
 def add_item(project_id):
     get_project_or_404(project_id)
     f = request.form
@@ -321,6 +573,10 @@ def add_item(project_id):
     except ValueError as e:
         flash(str(e), "error")
         return redirect(url_for("project_detail", project_id=project_id))
+    count = get_db().execute("SELECT COUNT(*) FROM cost_items WHERE project_id = ?", (project_id,)).fetchone()[0]
+    if count >= MAX_ROWS:
+        flash(f"A project can hold at most {MAX_ROWS} items", "error")
+        return redirect(url_for("project_detail", project_id=project_id))
     db = get_db()
     db.execute(
         "INSERT INTO cost_items (project_id, item, category, estimated, actual) VALUES (?,?,?,?,?)",
@@ -332,6 +588,7 @@ def add_item(project_id):
 
 
 @app.post("/projects/<int:project_id>/items/<int:item_id>/delete")
+@login_required
 def delete_item(project_id, item_id):
     get_project_or_404(project_id)
     db = get_db()
@@ -341,6 +598,8 @@ def delete_item(project_id, item_id):
 
 
 @app.post("/projects/<int:project_id>/upload")
+@login_required
+@limiter.limit("10 per minute")
 def upload(project_id):
     get_project_or_404(project_id)
     file = request.files.get("file")
@@ -350,12 +609,18 @@ def upload(project_id):
     try:
         rows = read_upload(file)
     except ValueError as e:
+        log_event("UPLOAD_REJECTED", filename=(file.filename or "")[:80], reason=str(e)[:120])
         flash(f"Upload rejected: {e}", "error")
         return redirect(url_for("project_detail", project_id=project_id))
 
     db = get_db()
     if request.form.get("mode") == "replace":
         db.execute("DELETE FROM cost_items WHERE project_id = ?", (project_id,))
+    else:
+        count = db.execute("SELECT COUNT(*) FROM cost_items WHERE project_id = ?", (project_id,)).fetchone()[0]
+        if count + len(rows) > MAX_ROWS:
+            flash(f"Upload rejected: a project can hold at most {MAX_ROWS} items", "error")
+            return redirect(url_for("project_detail", project_id=project_id))
     db.executemany(
         "INSERT INTO cost_items (project_id, item, category, estimated, actual) VALUES (?,?,?,?,?)",
         [(project_id, r["item"], r["category"], r["estimated"], r["actual"]) for r in rows],
@@ -370,6 +635,13 @@ def sample_template():
     return send_from_directory(BASE_DIR / "static", "sample_costs.csv", as_attachment=True)
 
 
+@app.route("/healthz")
+@limiter.exempt
+def healthz():
+    return {"status": "ok"}
+
+
+# ---------- template filters ----------
 @app.template_filter("money")
 def money(value):
     return f"{value:,.2f}"
@@ -390,11 +662,71 @@ def status_class(status):
     return {"Over budget": "over", "Under budget": "under"}.get(status, "on")
 
 
+# ---------- security headers ----------
+CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+       "font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; "
+       "form-action 'self'; frame-ancestors 'none'")
+
+
+@app.after_request
+def security_headers(resp):
+    h = resp.headers
+    h.setdefault("Content-Security-Policy", CSP)
+    h.setdefault("X-Content-Type-Options", "nosniff")
+    h.setdefault("X-Frame-Options", "DENY")
+    h.setdefault("Referrer-Policy", "same-origin")
+    h.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
+    h.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+    if IS_PROD:
+        h.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    if not request.path.startswith("/static/"):
+        h["Cache-Control"] = "no-store"  # pages and reports hold private cost data
+    h.pop("Server", None)
+    return resp
+
+
+# ---------- error pages (never show stack traces) ----------
+def error_page(code, title, message):
+    return render_template("error.html", code=code, title=title, message=message), code
+
+
+@app.errorhandler(404)
+def not_found(_e):
+    return error_page(404, "Not found", "This page or project does not exist, or you don't have access to it.")
+
+
+@app.errorhandler(405)
+def method_not_allowed(_e):
+    return error_page(405, "Not allowed", "That action isn't allowed here.")
+
+
+@app.errorhandler(CSRFError)
+def csrf_error(e):
+    log_event("CSRF_REJECTED", reason=e.description)
+    return error_page(400, "Request blocked", "Your form expired or did not come from this site. Go back, refresh the page and try again.")
+
+
+@app.errorhandler(429)
+def too_many_requests(e):
+    log_event("RATE_LIMITED", limit=str(e.description))
+    return error_page(429, "Too many requests", f"You're doing that too often ({e.description}). Please wait and try again.")
+
+
 @app.errorhandler(413)
 def too_large(_e):
+    log_event("UPLOAD_TOO_LARGE")
     flash("Upload rejected: file is larger than 2 MB", "error")
-    return redirect(request.referrer or url_for("index"))
+    m = re.fullmatch(r"/projects/(\d+)/upload", request.path)  # never trust the Referer header
+    return redirect(url_for("project_detail", project_id=int(m.group(1))) if m else url_for("index"))
+
+
+@app.errorhandler(500)
+def server_error(_e):
+    return error_page(500, "Something went wrong", "An unexpected error occurred. Please try again.")
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    # Debug mode exposes an interactive console that can run code on the server,
+    # so it is only ever enabled explicitly, and never in production.
+    debug = os.environ.get("FLASK_DEBUG") == "1" and not IS_PROD
+    app.run(host="127.0.0.1", port=int(os.environ.get("PORT", 5000)), debug=debug)
