@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h1>Projects</h1>
+  <p class="muted">Create a project, then enter cost items by hand or upload an Excel/CSV sheet.</p>
+  <form method="post" action="{{ url_for('create_project') }}" class="inline-form">
+    <input name="name" placeholder="e.g. Office Renovation 2026" maxlength="80" required>
+    <button type="submit">Create project</button>
+  </form>
+</section>
+
+<section class="card">
+  {% if projects %}
+  <table>
+    <thead><tr><th>Project</th><th>Items</th><th>Created</th></tr></thead>
+    <tbody>
+      {% for p in projects %}
+      <tr>
+        <td><a href="{{ url_for('project_detail', project_id=p.id) }}">{{ p.name }}</a></td>
+        <td>{{ p.item_count }}</td>
+        <td class="muted">{{ p.created_at[:10] }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No projects yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

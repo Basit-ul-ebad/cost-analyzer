@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} · Cost Analyzer{% endblock %}
+{% block content %}
+<a href="{{ url_for('index') }}" class="back">&larr; All projects</a>
+<div class="title-row">
+  <h1>{{ project.name }}</h1>
+  {% if a.lines %}
+  <div class="downloads">
+    <a class="btn" href="{{ url_for('report_pdf', project_id=project.id) }}">Download PDF report</a>
+    <a class="btn btn-secondary" href="{{ url_for('report_xlsx', project_id=project.id) }}">Export to Excel</a>
+  </div>
+  {% endif %}
+</div>
+
+{% set t = a.totals %}
+{% if t.item_count %}
+<div class="stats">
+  <div class="stat"><span>Estimated cost</span><strong>{{ t.estimated|money }}</strong></div>
+  <div class="stat"><span>Actual cost</span><strong>{{ t.actual|money }}</strong></div>
+  <div class="stat {{ t.status|status_class }}"><span>Variance</span><strong>{{ t.variance|signed }}</strong></div>
+  <div class="stat {{ t.status|status_class }}"><span>% Variance</span><strong>{{ t.pct_variance|pct }}</strong><em>{{ t.status }}</em></div>
+</div>
+<p class="muted small">
+  {{ t.status_counts['Over budget'] }} over budget ·
+  {{ t.status_counts['On budget'] }} on budget ·
+  {{ t.status_counts['Under budget'] }} under budget
+  &nbsp;(“on budget” = within ±{{ a.tolerance_pct|int }}% of estimate)
+</p>
+
+<div class="grid-2 charts">
+  <section class="card">
+    <h2>Estimated vs actual by category</h2>
+    <div class="chart-box"><canvas id="chart-category" aria-label="Bar chart comparing estimated and actual cost per category" role="img"></canvas></div>
+  </section>
+  <section class="card">
+    <h2>Share of actual spend</h2>
+    <div class="chart-box"><canvas id="chart-share" aria-label="Doughnut chart of actual spend share by category" role="img"></canvas></div>
+  </section>
+</div>
+<section class="card">
+  <h2>Variance per item <span class="muted legend-note"><i class="dot over"></i>over budget <i class="dot under"></i>under budget <i class="dot on"></i>on budget</span></h2>
+  <div class="chart-box" style="height: {{ [240, a.lines|length * 30 + 40]|max }}px"><canvas id="chart-variance" aria-label="Horizontal bar chart of variance per item" role="img"></canvas></div>
+</section>
+
+<section class="card ai" id="ai">
+  <h2>AI insights</h2>
+
+  <h3>Unusual expenses <span class="muted count">({{ anomalies|length }} flagged)</span></h3>
+  {% if anomalies %}
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Item</th><th>Category</th><th class="num">Variance</th><th class="num">% Var.</th><th>Severity</th><th>Why it was flagged</th></tr></thead>
+    <tbody>
+      {% for f in anomalies %}
+      <tr>
+        <td>{{ f.item }}</td>
+        <td>{{ f.category }}</td>
+        <td class="num over">{{ f.variance|signed }}</td>
+        <td class="num">{{ f.pct_variance|pct }}</td>
+        <td><span class="badge sev-{{ f.severity|lower }}">{{ f.severity }}</span></td>
+        <td class="reasons">{% for r in f.reasons %}<div>{{ r }}</div>{% endfor %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="muted">Nothing unusual detected.</p>
+  {% endif %}
+  <p class="muted tiny">Flagged when an item is more than 25% over its estimate, has spending with no estimate, or its variance is a statistical outlier (IQR rule) compared with the other items.</p>
+
+  <div class="summary-head">
+    <h3>Cost analysis summary</h3>
+    <form method="post" action="{{ url_for('ai_summary', project_id=project.id) }}">
+      <button type="submit">{{ 'Regenerate' if summary else 'Generate' }} AI summary</button>
+    </form>
+  </div>
+  {% if summary %}
+    {% if summary_stale %}<div class="flash flash-info">Cost data has changed since this summary was generated. Regenerate to update it.</div>{% endif %}
+    <div class="summary-text">{{ summary.summary }}</div>
+    <p class="muted tiny">Source: {{ summary.source }} · generated {{ summary.generated_at }} UTC. AI-generated text can contain mistakes; check figures against the tables above.</p>
+  {% else %}
+    <p class="muted">Click “Generate AI summary” for a written analysis of this project's costs.</p>
+  {% endif %}
+</section>
+
+<script type="application/json" id="chart-data">{{ chart_data|tojson }}</script>
+<script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}"></script>
+<script src="{{ url_for('static', filename='charts.js') }}"></script>
+{% endif %}
+
+<div class="grid-2">
+  <section class="card">
+    <h2>Add a cost item</h2>
+    <form method="post" action="{{ url_for('add_item', project_id=project.id) }}" class="stack">
+      <label>Item <input name="item" maxlength="100" required placeholder="e.g. Laptops"></label>
+      <label>Category <input name="category" maxlength="50" placeholder="e.g. Hardware"></label>
+      <div class="row">
+        <label>Estimated cost <input name="estimated" inputmode="decimal" required placeholder="0.00"></label>
+        <label>Actual cost <input name="actual" inputmode="decimal" required placeholder="0.00"></label>
+      </div>
+      <button type="submit">Add item</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Upload Excel / CSV</h2>
+    <p class="muted">Columns needed: <code>Item</code>, <code>Estimated</code>, <code>Actual</code> (optional <code>Category</code>). Max 2&nbsp;MB, {{ 1000 }} rows.</p>
+    <form method="post" action="{{ url_for('upload', project_id=project.id) }}" enctype="multipart/form-data" class="stack">
+      <input type="file" name="file" accept=".csv,.xlsx" required>
+      <div class="radios">
+        <label><input type="radio" name="mode" value="append" checked> Add to existing items</label>
+        <label><input type="radio" name="mode" value="replace"> Replace existing items</label>
+      </div>
+      <button type="submit">Upload</button>
+    </form>
+    <a href="{{ url_for('sample_template') }}" class="small-link">Download sample template</a>
+  </section>
+</div>
+
+<section class="card">
+  <h2>Cost items ({{ a.lines|length }})</h2>
+  {% if a.lines %}
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Item</th><th>Category</th><th class="num">Estimated</th><th class="num">Actual</th><th class="num">Variance</th><th class="num">% Var.</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+      {% for it in a.lines %}
+      <tr>
+        <td>{{ it.item }}</td>
+        <td>{{ it.category }}</td>
+        <td class="num">{{ it.estimated|money }}</td>
+        <td class="num">{{ it.actual|money }}</td>
+        <td class="num {{ it.status|status_class }}">{{ it.variance|signed }}</td>
+        <td class="num {{ it.status|status_class }}">{{ it.pct_variance|pct }}</td>
+        <td><span class="badge {{ it.status|status_class }}">{{ it.status }}</span></td>
+        <td>
+          <form method="post" action="{{ url_for('delete_item', project_id=project.id, item_id=it.id) }}">
+            <button class="link-btn" title="Delete">Remove</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr>
+        <th colspan="2">Total</th>
+        <th class="num">{{ t.estimated|money }}</th>
+        <th class="num">{{ t.actual|money }}</th>
+        <th class="num {{ t.status|status_class }}">{{ t.variance|signed }}</th>
+        <th class="num {{ t.status|status_class }}">{{ t.pct_variance|pct }}</th>
+        <th colspan="2"></th>
+      </tr>
+    </tfoot>
+  </table>
+  </div>
+  {% else %}
+  <p class="muted">No items yet. Add one above or upload a file.</p>
+  {% endif %}
+</section>
+
+{% if a.categories %}
+<section class="card">
+  <h2>By category</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Category</th><th class="num">Items</th><th class="num">Estimated</th><th class="num">Actual</th><th class="num">Variance</th><th class="num">% Var.</th><th>Status</th></tr></thead>
+    <tbody>
+      {% for c in a.categories %}
+      <tr>
+        <td>{{ c.category }}</td>
+        <td class="num">{{ c.count }}</td>
+        <td class="num">{{ c.estimated|money }}</td>
+        <td class="num">{{ c.actual|money }}</td>
+        <td class="num {{ c.status|status_class }}">{{ c.variance|signed }}</td>
+        <td class="num {{ c.status|status_class }}">{{ c.pct_variance|pct }}</td>
+        <td><span class="badge {{ c.status|status_class }}">{{ c.status }}</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endif %}
+{% endblock %}
