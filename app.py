@@ -9,6 +9,7 @@ Security controls (see docs/security-checklist.md):
   * upload validation: extension, size, file signature, zip-bomb guard, row/column/value checks
   * security event log in instance/security.log
 """
+import csv
 import hashlib
 import io
 import json
@@ -231,10 +232,14 @@ _DUMMY_HASH = generate_password_hash("not-a-real-password")
 
 
 # ---------- validation helpers ----------
+CURRENCY_RE = re.compile(r"(?i)(usd|pkr|inr|eur|gbp|rs\.?|[$€£₹])")
+
+
 def parse_amount(raw, field):
-    """Turn user input like '1,200.50' into a non-negative float."""
+    """Turn user input like '1,200.50', '$1,200' or 'Rs 5,000' into a non-negative float."""
     try:
-        value = float(str(raw).replace(",", "").strip())
+        text = CURRENCY_RE.sub("", str(raw)).replace(",", "").replace(" ", "").strip()
+        value = float(text)
     except (TypeError, ValueError):
         raise ValueError(f"{field} must be a number")
     if value != value or value < 0 or value > 1e12:  # value != value catches NaN
@@ -274,6 +279,14 @@ def check_file_signature(ext, data):
             raise ValueError("The file is not a plain-text CSV file")
 
 
+def detect_delimiter(text):
+    """Comma, semicolon (European Excel), tab or pipe separated files are all accepted."""
+    try:
+        return csv.Sniffer().sniff(text[:4096], delimiters=",;\t|").delimiter
+    except csv.Error:
+        return ","
+
+
 def read_upload(file_storage):
     """Read an uploaded CSV/XLSX into a list of validated row dicts."""
     ext = Path(file_storage.filename or "").suffix.lower()
@@ -292,7 +305,7 @@ def read_upload(file_storage):
                 text = data.decode("utf-8-sig")
             except UnicodeDecodeError:
                 text = data.decode("cp1252", errors="replace")  # Excel's default on Windows
-            df = pd.read_csv(io.StringIO(text), dtype=str, nrows=MAX_ROWS + 1)
+            df = pd.read_csv(io.StringIO(text), dtype=str, nrows=MAX_ROWS + 1, sep=detect_delimiter(text))
         else:
             df = pd.read_excel(io.BytesIO(data), dtype=str, engine="openpyxl", nrows=MAX_ROWS + 1)
     except Exception:

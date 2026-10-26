@@ -57,3 +57,15 @@ def test_manual_entry_and_delete(client):
     r = post_form(client, f"/projects/{pid}/items", {"item": "Desk", "estimated": "1,000", "actual": "1200"},
                   follow_redirects=True)
     assert b"Item added" in r.data and b"+200.00" in r.data
+
+
+def test_upload_accepts_other_csv_formats(client):
+    """Semicolon/tab separated files and amounts with currency symbols are accepted."""
+    register(client, "formats")
+    pid = create_project(client)
+    semicolon = "Item;Budget;Spent\nLaptop;\"1,000\";$1,200\nDesk;Rs 500;PKR 450\n".encode()
+    r = upload(client, pid, "eu.csv", semicolon)
+    assert b"Imported 2 item(s)" in r.data and b"+200.00" in r.data
+    tabbed = "Description\tCategory\tPlanned\tActual Spend\nChair\tFurniture\tUSD 100\t90\n".encode()
+    r = upload(client, pid, "tabs.csv", tabbed)
+    assert b"Imported 1 item(s)" in r.data

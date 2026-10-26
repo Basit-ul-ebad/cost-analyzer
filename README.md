@@ -36,7 +36,8 @@ calculations.py   Variance, % variance, status, category totals
 ai.py             Unusual-expense detection + Groq AI summary (with fallback)
 report.py         PDF report (reportlab + matplotlib) and Excel export (openpyxl)
 tests/            pytest security and functional tests
-docs/             Security checklist and test results
+docs/             User guide, security checklist and test results
+sample_data/      Kogane FYP cost sheet (SPMP estimates, simulated actuals)
 templates/        Jinja2 HTML pages
 static/           CSS, chart script, bundled Chart.js, sample CSV
 screenshots/      Screenshots for the submission
@@ -56,7 +57,7 @@ pip install pytest pypdf
 python -m pytest -v
 ```
 
-41 tests: 35 security tests (one class per threat T1–T8, plus SQL injection) and 6 functional tests. Latest output: [`docs/test-results.txt`](docs/test-results.txt).
+42 tests: 35 security tests (one class per threat T1–T8, plus SQL injection) and 7 functional tests. Latest output: [`docs/test-results.txt`](docs/test-results.txt).
 
 ## Security
 

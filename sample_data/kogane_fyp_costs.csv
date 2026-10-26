@@ -1,0 +1,49 @@
+WBS,Description,Category,Owner,Planned Days,Actual Days,Budget,Spent
+1.1,Scope document incl. WBS,Documentation,Both,6,7,$150.00,$175.00
+1.2,SRS (Document 2),Documentation,Both,6,6.5,$150.00,$162.50
+1.3,Software Design Specification,Documentation,Both,12,13,$300.00,$325.00
+1.4,30% implementation report,Documentation,Both,4,4,$100.00,$100.00
+1.5,Thesis chapters 3-5,Documentation,Both,12,11,$300.00,$275.00
+1.6,Final documentation and submission,Documentation,Both,4,3,$100.00,$75.00
+2.1,M1 ERD/contract ingestion and intent model,Verification core,Faiza,10,11,$250.00,$275.00
+2.2,"M2 Python extraction (AST, SQLAlchemy)",Verification core,Faiza,10,10,$250.00,$250.00
+2.3,M2 Django extraction,Verification core,Basit,4,5,$100.00,$125.00
+2.4,M3 ERD-to-ORM mapping,Verification core,Faiza,4,4,$100.00,$100.00
+2.5,M3 contract-layer mapping,Verification core,Basit,4,3.5,$100.00,$87.50
+2.6,M4 data-model differencing,Verification core,Faiza,6,6,$150.00,$150.00
+2.7,M4 dependency differencing,Verification core,Basit,8,9,$200.00,$225.00
+2.8,M4 change classification and pre-check,Verification core,Basit,4,4,$100.00,$100.00
+3.1,M5 LLM client and Task Specification,Prompt Guard,Faiza,8,8.5,$200.00,$212.50
+3.2,M5 conflict and readiness checks,Prompt Guard,Basit,8,9.5,$200.00,$237.50
+3.3,M5 context pack and enhanced prompt,Prompt Guard,Faiza,5,5,$125.00,$125.00
+3.4,M5 complexity score and tier recommendation,Prompt Guard,Basit,3,3,$75.00,$75.00
+3.5,M5 guard REST endpoints,Prompt Guard,Basit,2,2,$50.00,$50.00
+4.1,M6 knowledge index and retrieval,Corrective feedback,Faiza,4,4,$100.00,$100.00
+4.2,M6 grounded explanation generation,Corrective feedback,Faiza,3,3.5,$75.00,$87.50
+4.3,M6 citation validation and fallback,Corrective feedback,Basit,3,3,$75.00,$75.00
+4.4,M6 evidence-linked corrective prompts,Corrective feedback,Faiza,2,2,$50.00,$50.00
+4.5,M6 re-verification of corrections,Corrective feedback,Basit,2,1.5,$50.00,$37.50
+5.1,M7 mutation generator and baselines,Evaluation,Basit,8,8,$200.00,$200.00
+5.2,"Seed repositories, ERDs and test suites",Evaluation,Both,12,14,$300.00,$350.00
+5.3,"Task corpus (20 tasks, 40 requests)",Evaluation,Both,7,7,$175.00,$175.00
+5.4,"M7 experiment harness (containers, cost logging)",Evaluation,Basit,8,12,$200.00,$300.00
+5.5,Warning labelling and Cohen's kappa,Evaluation,Both,4,4,$100.00,$100.00
+5.6,Pilot on 5 tasks and protocol freeze,Evaluation,Both,4,4.5,$100.00,$112.50
+5.7,Full experiment runs,Evaluation,Both,4,4,$100.00,$100.00
+5.8,Statistics and effect sizes,Evaluation,Both,5,4.5,$125.00,$112.50
+6.1,"M8 back end: sign-in, workspaces, uploads, API",Web application,Basit,10,10.5,$250.00,$262.50
+6.2,M8 back end: reports and exports,Web application,Basit,4,4,$100.00,$100.00
+6.3,"M8 front end: graph, Guard and Change views",Web application,Faiza,12,16,$300.00,$400.00
+6.4,M8 front end: report and evaluation screens,Web application,Faiza,3,3,$75.00,$75.00
+6.5,Front end and API integration,Web application,Both,5,6,$125.00,$150.00
+7.1,Unit and integration testing (Modules 1-5),Testing,Both,10,10,$250.00,$250.00
+7.2,Benchmark regression and acceptance testing,Testing,Both,6,5.5,$150.00,$137.50
+8.1,Final demonstration preparation,Final demonstration,Both,4,4,$100.00,$100.00
+9.1,Gemini API - development usage (20M tokens),Cloud and API,Both,,,$19.20,$46.80
+9.2,"Gemini API - Study B, higher tier",Cloud and API,Both,,,$4.50,$7.20
+9.3,"Gemini API - Study B, lower tier",Cloud and API,Both,,,$0.86,$0.80
+9.4,Demo VM - month 1,Infrastructure,Basit,,,$35.00,$35.00
+9.5,Demo VM - month 2,Infrastructure,Basit,,,$35.00,$35.00
+9.6,Demo VM - month 3,Infrastructure,Basit,,,$35.00,$38.50
+9.7,Storage and backup,Infrastructure,Basit,,,$15.00,$15.00
+9.8,"Software and tools (VS Code, GitHub, Jira, Docker...)",Software and tools,Both,,,$0.00,$0.00
